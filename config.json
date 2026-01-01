@@ -1,0 +1,12 @@
+{
+  "gamma_base": "https://gamma-api.polymarket.com",
+  "clob_base": "https://clob.polymarket.com",
+  "event_slug_prefix": "btc-updown-15m",
+  "interval_sec": 900,
+  "timeout_sec": 10,
+
+  "loop_mode": "one",
+  "run_seconds": 0,
+  "max_slugs": 0,
+  "print_every": 1
+}

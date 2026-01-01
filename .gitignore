@@ -1,0 +1,14 @@
+# python
+__pycache__/
+*.pyc
+
+# runtime
+state.json
+logs/
+
+# venv
+.venv/
+venv/
+
+# editor
+.vscode/
