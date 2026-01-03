@@ -19,7 +19,9 @@ SPEC v1.5
 
 polybots/
 - SPECv1.5.md
+- CONTRACT.md
 - REVIEW.md
+- AGENTS.md
 
 - requirements.txt
 
