@@ -3,10 +3,20 @@
   "clob_base": "https://clob.polymarket.com",
   "event_slug_prefix": "btc-updown-15m",
   "interval_sec": 900,
-  "timeout_sec": 10,
+  "timeout_sec": 5,
 
-  "loop_mode": "rolling",
+  "loop_mode": "one",
   "run_seconds": 0,
   "max_slugs": 0,
-  "print_every": 1
+  "print_every": 1,
+
+  "strategy": {
+    "enter_time_left_sec": 450,
+    "enter_price_1": 0.8,
+    "enter_price_re": 0.9,
+    "stop_drop": 0.1,
+    "take_profit": 0.99,
+    "max_entries_per_slug": 2,
+    "qty": 1
+  }
 }

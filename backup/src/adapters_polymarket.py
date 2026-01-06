@@ -11,16 +11,9 @@ class PolymarketAdapter:
         self.tmo = cfg.get("timeout_sec", 10)
         self.sess = requests.Session()
 
-        # --- execution config ---
+        # --- execution config (loop는 slug_loop가 담당하지만, 기존 필드는 유지) ---
         self.prefix = cfg["event_slug_prefix"]
         self.interval_sec = int(cfg["interval_sec"])
-        self.loop_mode = cfg.get("loop_mode", "rolling").lower()
-        self.run_seconds = int(cfg.get("run_seconds", 0))
-        self.max_slugs = int(cfg.get("max_slugs", 0))
-        self.print_every = int(cfg.get("print_every", 1))
-
-        # polling rule (합의 사항)
-        self.poll_interval = 1  # 항상 1초
 
     # --------------------
     # basic http
@@ -110,69 +103,32 @@ class PolymarketAdapter:
         return self.outcome_token_pairs(market)
 
     # --------------------
-    # rolling poll (FINAL)
+    # convenience: slug에서 Up/Down bid/ask 묶어서 반환
     # --------------------
-    def poll_rolling(self):
-        start_time = time.time()
-        deadline = (
-            start_time + self.run_seconds
-            if self.loop_mode == "duration" and self.run_seconds > 0
-            else None
-        )
+    def quote_updown(self, slug):
+        """
+        return:
+          {
+            "slug": slug,
+            "up":   {"outcome": "Up",   "token_id": "...", "bid": x, "ask": y},
+            "down": {"outcome": "Down", "token_id": "...", "bid": x, "ask": y},
+          }
+        """
+        pairs = self.resolve_pairs_for_slug(slug)
 
-        last_slug = None
-        rollover_count = 0
-        tick = 0
+        result = {"slug": slug, "up": None, "down": None}
 
-        while True:
-            now = time.time()
+        for outcome, token_id in pairs:
+            o = outcome.lower()
+            if o == "up":
+                bid, ask = self.best_bid_ask(token_id)
+                result["up"] = {"outcome": outcome, "token_id": token_id, "bid": bid, "ask": ask}
+            elif o == "down":
+                bid, ask = self.best_bid_ask(token_id)
+                result["down"] = {"outcome": outcome, "token_id": token_id, "bid": bid, "ask": ask}
 
-            # duration 종료
-            if deadline and now >= deadline:
-                print("exit: duration reached")
-                return
+        # Up/Down 둘 중 하나라도 못 얻으면 예외로 올려서 상위에서 warn 처리
+        if not result["up"] or not result["down"]:
+            raise RuntimeError("Up/Down quote not ready yet")
 
-            slug, _ = self.slug_now()
-
-            # --- slug 변화 감지 ---
-            if last_slug is None:
-                last_slug = slug
-                print("\n=== SLUG INIT ===")
-                print(f"slug : {slug}")
-
-            elif slug != last_slug:
-                if self.loop_mode == "one":
-                    pass
-                else:
-                    last_slug = slug
-                    rollover_count += 1
-
-                    print("\n=== SLUG CHANGE ===")
-                    print(f"slug : {slug}")
-                    print(f"rollover_count : {rollover_count}")
-
-                    if self.max_slugs > 0 and rollover_count >= self.max_slugs:
-                        print("exit: max_slugs reached")
-                        return
-
-            # --- 출력 ---
-            if tick % self.print_every == 0:
-                try:
-                    pairs = self.resolve_pairs_for_slug(slug)
-                    slug_prefix = slug.rsplit("-", 1)[0]
-                    print(f"\n[{tick:06d}] {slug_prefix}")
-
-                    for label in ("Up", "Down"):
-                        for outcome, token_id in pairs:
-                            if outcome.lower() == label.lower():
-                                bid, ask = self.best_bid_ask(token_id)
-                                print(
-                                    f"{label:<5}: "
-                                    f"best_ask(market buy) / best_bid(market sell) : "
-                                    f"{ask} / {bid}"
-                                )
-                except Exception as e:
-                    print(f"[warn] data not ready yet: {e}")
-
-            tick += 1
-            time.sleep(self.poll_interval)
+        return result

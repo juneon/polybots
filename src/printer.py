@@ -1,22 +1,10 @@
+# src/printer.py
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-STATE = Path("state.json")
 
-
-def jload(p: Path) -> Dict[str, Any]:
-    if not p.exists():
-        return {"version": 1, "slugs": {}}
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {"version": 1, "slugs": {}}
-
-
-def f(x: Any) -> Optional[float]:
+def _f(x: Any) -> Optional[float]:
     try:
         return None if x is None else float(x)
     except Exception:
@@ -24,35 +12,44 @@ def f(x: Any) -> Optional[float]:
 
 
 class Printer:
-    def __init__(self):
-        pass
+    def __init__(self, cfg: Dict[str, Any]):
+        self.print_every = max(1, int(cfg.get("print_every", 1)))
 
-    def on_event(self, ev: Dict[str, Any]) -> None:
+    def on_event(self, ev: Dict[str, Any], state: Dict[str, Any]) -> None:
         t = ev.get("type")
-        if t != "quote":
-            # slug/warn/intent 같은 건 필요하면 여기서 추가
+
+        if t == "intent":
+            print(f"  -> {ev['kind']} {ev['side']} @ {ev['price']}")
             return
 
-        slug = str(ev.get("slug", ""))
+        if t != "quote":
+            return
+
         tick = int(ev.get("tick", 0))
+        if tick % self.print_every != 0:
+            return
+
+        slug = ev["slug"]
         q = ev.get("quote") or {}
-        ua, ub = f((q.get("up") or {}).get("ask")), f((q.get("up") or {}).get("bid"))
-        da, db = f((q.get("down") or {}).get("ask")), f((q.get("down") or {}).get("bid"))
+
+        up = q.get("up") or {}
+        dn = q.get("down") or {}
+
+        ua, ub = _f(up.get("ask")), _f(up.get("bid"))
+        da, db = _f(dn.get("ask")), _f(dn.get("bid"))
 
         print(f"\n[{tick:06d}] {slug}")
-        print("Up   :", "-" if ua is None or ub is None else f"ask {ua:.2f} / bid {ub:.2f}")
-        print("Down :", "-" if da is None or db is None else f"ask {da:.2f} / bid {db:.2f}")
+        print("Up   :", "-" if ua is None else f"ask {ua:.2f} / bid {ub:.2f}")
+        print("Down :", "-" if da is None else f"ask {da:.2f} / bid {db:.2f}")
 
-        st = jload(STATE)
-        ss = (st.get("slugs") or {}).get(slug) or {}
-        pos = ss.get("position")
-        ent = ss.get("entries") or {"up": 0, "down": 0}
+        pos = state.get("position")
+        ent = state.get("entries")
+        lock = " TP_LOCK" if state.get("tp_done") else ""
 
-        if isinstance(pos, dict) and pos.get("side") in ("up", "down"):
-            side = pos["side"]
-            entry = float(pos.get("entry", 0.0))
-            qty = int(pos.get("qty", 0))
-            tries = int(ent.get(side, 0))
-            print(f"position : BUY {side} {entry:.2f} (qty {qty}) - try {tries}")
+        if isinstance(pos, dict):
+            print(
+                f"position : BUY {pos['side']} {pos['entry']:.2f} "
+                f"(try {ent[pos['side']]}){lock}"
+            )
         else:
-            print("position : -")
+            print(f"position : -{lock}")

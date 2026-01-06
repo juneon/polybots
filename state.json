@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "updated_ts": 1767539771,
+  "slugs": {
+    "btc-updown-15m-1767539700": {
+      "entries": {
+        "up": 0,
+        "down": 0
+      },
+      "position": null,
+      "last_intent": null,
+      "tp_done": false
+    }
+  }
+}

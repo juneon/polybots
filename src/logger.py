@@ -1,43 +1,129 @@
-# src/logger.py
-import csv
-import json
-import os
-import time
+from __future__ import annotations
+
+import csv, json, time
+from pathlib import Path
 from typing import Any, Dict
 
-Event = Dict[str, Any]
+
+def _now() -> int:
+    return int(time.time())
 
 
 class Logger:
     """
-    v0 Logger
-    - event(dict)를 logs/events.csv에 그대로 append
-    - 절대 시스템을 죽이지 않음(로깅 실패는 무시)
+    logging:
+      - events:    bool -> events.csv (debug, overwrite)
+      - trades:    bool -> trades.csv (append)
+      - snapshots: bool -> snapshots.csv (append, type=='snapshot')
     """
 
-    def __init__(self, log_dir: str = "logs"):
-        self.log_dir = log_dir
-        self.path = os.path.join(log_dir, "events.csv")
-        self._ensure_file()
+    def __init__(self, cfg: Dict[str, Any]):
+        logcfg = cfg.get("logging") or {}
 
-    def handle(self, event: Event) -> None:
-        row = {
-            "ts": time.time(),
-            "type": event.get("type"),
-            "slug": event.get("slug"),
-            "tick": event.get("tick"),
-            "data": json.dumps(event, ensure_ascii=False, default=str),
-        }
-        try:
-            with open(self.path, "a", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=["ts", "type", "slug", "tick", "data"])
-                writer.writerow(row)
-        except Exception:
-            pass
+        self.log_events = bool(logcfg.get("events", False))
+        self.log_trades = bool(logcfg.get("trades", False))
+        self.log_snaps  = bool(logcfg.get("snapshots", False))
 
-    def _ensure_file(self) -> None:
-        os.makedirs(self.log_dir, exist_ok=True)
-        if not os.path.exists(self.path):
-            with open(self.path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=["ts", "type", "slug", "tick", "data"])
-                writer.writeheader()
+        self.dir = Path("logs")
+        self.dir.mkdir(parents=True, exist_ok=True)
+
+        self._events_f = self._trades_f = self._snaps_f = None
+        self._events_w = self._trades_w = self._snaps_w = None
+
+        if self.log_events:
+            self._open_events()
+
+        if self.log_trades:
+            self._open_trades()
+
+        if self.log_snaps:
+            self._open_snapshots()
+
+    # ---------- open files ----------
+
+    def _open_events(self) -> None:
+        path = self.dir / "events.csv"
+        self._events_f = path.open("w", newline="", encoding="utf-8")  # overwrite
+        self._events_w = csv.DictWriter(
+            self._events_f,
+            fieldnames=["ts", "type", "slug", "tick", "data_json"],
+        )
+        self._events_w.writeheader()
+
+    def _open_trades(self) -> None:
+        path = self.dir / "trades.csv"
+        new = not path.exists()
+        self._trades_f = path.open("a", newline="", encoding="utf-8")
+        self._trades_w = csv.DictWriter(
+            self._trades_f,
+            fieldnames=["ts", "slug", "tick", "kind", "side", "price", "qty"],
+        )
+        if new:
+            self._trades_w.writeheader()
+
+    def _open_snapshots(self) -> None:
+        path = self.dir / "snapshots.csv"
+        new = not path.exists()
+        self._snaps_f = path.open("a", newline="", encoding="utf-8")
+        self._snaps_w = csv.DictWriter(
+            self._snaps_f,
+            fieldnames=["ts", "slug", "tick", "data_json"],
+        )
+        if new:
+            self._snaps_w.writeheader()
+
+    # ---------- handle event ----------
+
+    def handle(self, ev: Dict[str, Any]) -> None:
+        et = ev.get("type")
+        ts = int(ev.get("ts") or _now())
+
+        # 1) events (debug)
+        if self._events_w is not None:
+            self._events_w.writerow(
+                {
+                    "ts": ts,
+                    "type": et,
+                    "slug": ev.get("slug"),
+                    "tick": ev.get("tick"),
+                    "data_json": json.dumps(ev, ensure_ascii=False, separators=(",", ":")),
+                }
+            )
+
+        # 2) trades (intent 포함, strategy 수정 최소화)
+        if self._trades_w is not None and et in ("trade", "intent"):
+            self._trades_w.writerow(
+                {
+                    "ts": ts,
+                    "slug": ev.get("slug"),
+                    "tick": ev.get("tick"),
+                    "kind": ev.get("kind") or ev.get("action") or "",
+                    "side": ev.get("side"),
+                    "price": ev.get("price"),
+                    "qty": ev.get("qty"),
+                }
+            )
+
+        # 3) snapshots
+        if self._snaps_w is not None and et == "snapshot":
+            self._snaps_w.writerow(
+                {
+                    "ts": ts,
+                    "slug": ev.get("slug"),
+                    "tick": ev.get("tick"),
+                    "data_json": json.dumps(ev, ensure_ascii=False, separators=(",", ":")),
+                }
+            )
+
+        # flush는 단순화 우선 (성능 문제 생기면 옵션화)
+        if self._events_f: self._events_f.flush()
+        if self._trades_f: self._trades_f.flush()
+        if self._snaps_f:  self._snaps_f.flush()
+
+    def close(self) -> None:
+        for f in (self._events_f, self._trades_f, self._snaps_f):
+            try:
+                if f:
+                    f.close()
+            except Exception:
+                pass

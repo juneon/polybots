@@ -18,5 +18,11 @@
     "take_profit": 0.99,
     "max_entries_per_slug": 2,
     "qty": 1
+  },
+
+  "logging": {
+    "events": false,
+    "trades": true,
+    "snapshots": false
   }
 }

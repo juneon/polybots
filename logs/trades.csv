@@ -1,0 +1,29 @@
+ts,market_id,action,side,size_usd,fill_price,best_bid,best_ask,fee_usd,slippage_bps,equity_before,equity_after,reason
+1767456857,btc-updown-15m-1767456000,0,buy,up,1.0,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767456000"", ""tick"": 0, ""side"": ""up"", ""price"": 1.0, ""qty"": 1, ""ts"": 1767456857}"
+1767456859,btc-updown-15m-1767456000,1,exit_tp,up,0.99,1,intent,"{""type"": ""intent"", ""kind"": ""exit_tp"", ""slug"": ""btc-updown-15m-1767456000"", ""tick"": 1, ""side"": ""up"", ""price"": 0.99, ""qty"": 1, ""ts"": 1767456859}"
+1767536878,btc-updown-15m-1767536100,0,buy,down,1.0,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767536100"", ""tick"": 0, ""side"": ""down"", ""price"": 1.0, ""qty"": 1, ""ts"": 1767536878}"
+1767536881,btc-updown-15m-1767536100,1,exit_tp,down,0.991,1,intent,"{""type"": ""intent"", ""kind"": ""exit_tp"", ""slug"": ""btc-updown-15m-1767536100"", ""tick"": 1, ""side"": ""down"", ""price"": 0.991, ""qty"": 1, ""ts"": 1767536881}"
+1767537470,btc-updown-15m-1767537000,199,buy,down,0.86,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767537000"", ""tick"": 199, ""side"": ""down"", ""price"": 0.86, ""qty"": 1, ""ts"": 1767537470}"
+1767537516,btc-updown-15m-1767537000,219,exit_sl,down,0.71,1,intent,"{""type"": ""intent"", ""kind"": ""exit_sl"", ""slug"": ""btc-updown-15m-1767537000"", ""tick"": 219, ""side"": ""down"", ""price"": 0.71, ""qty"": 1, ""ts"": 1767537516}"
+1767537565,btc-updown-15m-1767537000,240,buy,down,0.9,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767537000"", ""tick"": 240, ""side"": ""down"", ""price"": 0.9, ""qty"": 1, ""ts"": 1767537565}"
+1767537621,btc-updown-15m-1767537000,264,exit_sl,down,0.75,1,intent,"{""type"": ""intent"", ""kind"": ""exit_sl"", ""slug"": ""btc-updown-15m-1767537000"", ""tick"": 264, ""side"": ""down"", ""price"": 0.75, ""qty"": 1, ""ts"": 1767537621}"
+1767538351,btc-updown-15m-1767537900,185,buy,up,0.97,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767537900"", ""tick"": 185, ""side"": ""up"", ""price"": 0.97, ""qty"": 1, ""ts"": 1767538351}"
+1767538483,btc-updown-15m-1767537900,242,exit_tp,up,0.99,1,intent,"{""type"": ""intent"", ""kind"": ""exit_tp"", ""slug"": ""btc-updown-15m-1767537900"", ""tick"": 242, ""side"": ""up"", ""price"": 0.99, ""qty"": 1, ""ts"": 1767538483}"
+1767539486,btc-updown-15m-1767538800,32,buy,down,0.81,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767538800"", ""tick"": 32, ""side"": ""down"", ""price"": 0.81, ""qty"": 1, ""ts"": 1767539486}"
+1767539523,btc-updown-15m-1767538800,48,exit_sl,down,0.69,1,intent,"{""type"": ""intent"", ""kind"": ""exit_sl"", ""slug"": ""btc-updown-15m-1767538800"", ""tick"": 48, ""side"": ""down"", ""price"": 0.69, ""qty"": 1, ""ts"": 1767539523}"
+1767539641,btc-updown-15m-1767538800,99,buy,down,0.94,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767538800"", ""tick"": 99, ""side"": ""down"", ""price"": 0.94, ""qty"": 1, ""ts"": 1767539641}"
+1767539669,btc-updown-15m-1767538800,111,exit_tp,down,0.99,1,intent,"{""type"": ""intent"", ""kind"": ""exit_tp"", ""slug"": ""btc-updown-15m-1767538800"", ""tick"": 111, ""side"": ""down"", ""price"": 0.99, ""qty"": 1, ""ts"": 1767539669}"
+1767540184,btc-updown-15m-1767539700,75,buy,down,0.8,1,intent,"{""type"": ""intent"", ""kind"": ""buy"", ""slug"": ""btc-updown-15m-1767539700"", ""tick"": 75, ""side"": ""down"", ""price"": 0.8, ""qty"": 1, ""ts"": 1767540184}"
+1767540434,btc-updown-15m-1767539700,183,exit_tp,down,0.99,1,intent,"{""type"": ""intent"", ""kind"": ""exit_tp"", ""slug"": ""btc-updown-15m-1767539700"", ""tick"": 183, ""side"": ""down"", ""price"": 0.99, ""qty"": 1, ""ts"": 1767540434}"
+1767541082,btc-updown-15m-1767540600,176,buy,down,0.82,1
+1767541096,btc-updown-15m-1767540600,182,exit_sl,down,0.72,1
+1767541417,btc-updown-15m-1767540600,0,buy,down,0.85,1
+1767541475,btc-updown-15m-1767540600,25,exit_tp,down,0.99,1
+1767541950,btc-updown-15m-1767541500,116,buy,up,0.93,1
+1767542208,btc-updown-15m-1767541500,228,exit_tp,up,0.99,1
+1767712212,btc-updown-15m-1767711600,121,buy,up,0.8,1
+1767712226,btc-updown-15m-1767711600,127,exit_sl,up,0.58,1
+1767712363,btc-updown-15m-1767711600,186,buy,down,0.8,1
+1767712391,btc-updown-15m-1767711600,198,exit_sl,down,0.67,1
+1767712475,btc-updown-15m-1767711600,234,buy,down,0.9,1
+1767712498,btc-updown-15m-1767711600,244,exit_tp,down,0.99,1
