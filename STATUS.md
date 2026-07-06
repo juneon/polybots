@@ -1,6 +1,25 @@
 # STATUS — 운영 로그 리뷰 & 진행 계획
 
 > 작성: 2026-07-07 | 리팩토링 직후 상태. 구조/수정 내역은 `ANALYSIS.md`, 명세는 `SPEC.md` 참조.
+> **최신 전체 요약은 `REPORT.html`** (P1 백테스트 현실화 결과 포함 — 본 문서 §2의 P1은 완료됨).
+
+---
+
+## ⏸ 재개 지점 (2026-07-07 새벽 세션 종료 시점)
+
+**마지막 상태**: P0(sim 수집)만 진행 중이었고 나머지는 완료. threshold sim은 slug 3/30 수집 후 정상 종료함.
+
+**재개 방법** (순서대로):
+1. sim 재가동: 루트에서 `python -m core.runner --strategy threshold --mode sim` (백그라운드 권장)
+   - 로그는 append + run_id 구분이라 그냥 다시 켜면 이어서 쌓임. slug 30개 목표 (연속 불필요, 누적 7.5시간분)
+2. slug 30개+ 모이면: `cd backtest && python data_prep.py` → `python engine.py --strategy threshold` 로 신규 데이터 포함 재평가
+3. 그 다음은 아래 §2 로드맵의 P2부터 (P1은 완료)
+
+**P1 완료 요약** (상세: REPORT.html):
+- 비용 실측 캘리브레이션: 매도 헤어컷 0.01 / 실패율 0.2 / dust 1.3% — 엔진이 3/3 실거래를 ±$2.6로 재현
+- **MA breakout 판정: 라이브 부적합** — 3,600조합 중 train/val 동시 플러스 1개(경제성 없음)
+- **threshold 판정: 주력 후보** — 비용 반영 +$27.2 / 검증셋 +$2.7, 72조합 중 2위. tp 0.98→0.99 반영 완료
+- 백테스트 파이프라인: `backtest/README.md` 참조 (data_prep → run_grid/sweep → engine → config 반영)
 
 ---
 
