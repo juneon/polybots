@@ -181,6 +181,8 @@ class MABreakoutStrategy(BaseStrategy):
         slug = str(ev.get("slug") or "")
         tick = int(ev.get("tick") or 0)
         tleft = int(ev.get("time_left_sec") or 0)
+        # event time: replay engines inject historical "ts"; live falls back to wall clock
+        now = float(ev.get("ts") or time.time())
         q = ev.get("quote") or {}
 
         try:
@@ -242,7 +244,7 @@ class MABreakoutStrategy(BaseStrategy):
 
         if st["buy_inflight"]:
             return []
-        if time.time() < self._next_entry_ts:
+        if now < self._next_entry_ts:
             return []
         if self.cfg.no_entry_last_sec is not None and tleft <= int(self.cfg.no_entry_last_sec):
             return []

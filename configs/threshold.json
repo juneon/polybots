@@ -22,7 +22,7 @@
     "entry_cap": 0.9,
 
     "stop_drop": 0.06,
-    "take_profit": 0.98,
+    "take_profit": 0.99,
 
     "max_entries_per_slug": 2,
     "force_exit_left_sec": 50,
