@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m core.runner --strategy ma_breakout --mode sim:*)",
+      "Bash(python -m core.runner --strategy threshold --mode sim:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -c:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(./.env)",
+      "Read(**/.env)"
+    ]
+  }
+}

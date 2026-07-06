@@ -1,0 +1,22 @@
+# secrets — NEVER commit
+.env
+
+# python
+__pycache__/
+*.pyc
+
+# runtime artifacts
+logs/
+sim_account.json
+
+# backtest raw data (large; regenerated from live runs' events.csv)
+backtest/data/
+backtest/grid_results.csv
+
+# legacy checkouts (own git repos, kept as archive)
+polybots_MA/
+polybots_pre/
+polybots_backtest/
+
+# local-only claude settings
+.claude/settings.local.json

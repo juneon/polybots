@@ -1,0 +1,51 @@
+{
+  "gamma_base": "https://gamma-api.polymarket.com",
+  "clob_base": "https://clob.polymarket.com",
+  "event_slug_prefix": "btc-updown-15m",
+
+  "interval_sec": 900,
+  "timeout_sec": 5,
+  "loop_mode": "rolling",
+  "run_seconds": 0,
+  "max_slugs": 0,
+  "print_every": 1,
+
+  "strategy": {
+    "name": "ma_breakout",
+    "qty_tokens": 10,
+    "cap": 0.5,
+    "ma_len": 300,
+    "tick_confirm": 0,
+    "cooldown_sec": 0,
+    "no_entry_last_sec": null,
+    "tp_abs": 0.98
+  },
+
+  "execution": {
+    "buy": "market",
+    "tp": "limit",
+    "sl": "market",
+    "time": "market",
+
+    "slippage": 0.05,
+    "buy_cap": 0.99,
+    "sell_floor": 0.01,
+
+    "sell_sweep_window_sec": 10,
+    "sell_sweep_poll_sec": 0.5
+  },
+
+  "logging": {
+    "events": true,
+    "trades": true,
+    "snapshots": true
+  },
+
+  "account": {
+    "user": "0x4EAaB36c2D0dF091238B149380A2993cc48f9Fe4",
+    "chain_id": 137,
+    "signature_type": 2,
+    "buy_size_tokens": 10,
+    "post_only": false
+  }
+}

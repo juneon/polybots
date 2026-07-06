@@ -1,0 +1,10 @@
+# core (sim mode)
+requests
+
+# backtest
+numpy
+pandas
+
+# live mode only
+py-clob-client
+python-dotenv
