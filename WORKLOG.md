@@ -118,3 +118,104 @@
 - config는 봇 시작 시 1회 로드 → 저장해도 실행 중인 봇에는 미반영(UI가 배너로 경고)
 
 **다음 작업**: **Phase D (Backtest 탭)** — `ui/jobs.py` 백그라운드 실행 + 진행률 + 결과 아카이브 비교
+
+---
+
+### 2026-07-11 — 세션 종료 기록: Phase D/E 상세 스펙 + 재개 순서
+
+> 사용자 요청으로 미착수 Phase의 설계를 상세히 남김. 다음 세션은 여기서 이어서 시작.
+
+#### Phase D — Backtest 탭 (미착수, 설계 확정)
+
+목적: **"수집 → 재평가 → config 반영" 사이클을 UI 안에서 완결** (지금은 터미널에서 수동).
+
+- **백엔드 `ui/jobs.py`** (신규):
+  - job 1개 = backtest 스크립트 subprocess 1개. 종류: `data_prep` / `engine --strategy X` / `sweep_threshold` / `run_grid`
+  - 상태 queued → running → done|failed. stdout은 `logs/ctl/bt_<job_id>.log`로 캡처, UI가 tail 폴링
+  - **동시 실행 1개 제한** — run_grid는 자체가 10워커 병렬이라 겹치면 머신이 죽음
+  - 완료 시 결과를 `backtest/results/<ts>_<kind>_<strategy>.json`으로 아카이브 (지표: 전체/검증셋 PnL, slug 승패, MDD, 체결 수, 사용한 파라미터·비용 모델)
+  - 선행조건 체크: engine/sweep/grid 실행 전 data_prep 산출물 존재·최신성 확인
+- **API**: `POST /api/backtest/run {kind, strategy, params}` (params = haircut/p_fail/dust 오버라이드), `GET /api/backtest/jobs[/{id}]` (+로그 tail), `GET /api/backtest/results`
+- **UI 탭**: 실행 폼 → 진행 로그 뷰(폴링) → 결과 테이블 → **과거 결과 나란히 비교** → "1위 파라미터 config 반영" 버튼(Phase C의 PUT 재사용)
+- **구현 주의**: 스크립트 stdout을 정규식 파싱하지 말 것 — backtest 스크립트에 `--json <경로>` 출력 옵션을 추가하는 쪽이 견고 (backtest/ 소폭 수정 필요). **착수 전에 아래 구조 감사 개선안 #1(엔진 통일)을 먼저 하는 게 좋음** — 그래야 UI가 하나의 엔진만 호출.
+
+#### Phase E — live 가드 + 마감 (미착수, 설계 확정)
+
+- **live 시작 3단계 가드**:
+  1. 모드 live 선택 → 빨간 경고 + **재개 기준 체크리스트 자동 표시** (sim slug 수 n/30 · 최근 현실화 백테스트 결과 존재/부호 · P2 완료 여부 — 미충족 항목이 있으면 그대로 보여주고 진행은 막지 않되 명시)
+  2. 확인 문구 직접 타이핑: `LIVE <전략명>` 정확 일치해야 버튼 활성
+  3. 시작 전 요약 카드(전략/qty/공개 지갑주소/핵심 config 값) → 최종 확인
+- **서버측**: `POST /api/bot/start`의 live 허용 조건 = body에 confirm 문구 동봉 + 서버 기동 플래그 `--allow-live` (기본 꺼짐 — 평소엔 서버 자체가 live 불가). 실행 중 상단 상시 빨간 배너
+- **kill switch 정식화**: 전체 정지 + live 포지션 flatten 옵션 — flatten은 P2의 SELL 스윕 경로 재사용이므로 **P2 완료가 전제**
+- **로그 뷰어**: run별 out.log tail + trades 최근 N건
+- **불변 원칙**: UI 서버는 `.env`를 절대 읽지 않음 (live 자격증명은 봇 프로세스만 로드)
+
+#### 작업 재개 순서 (UI Phase와 기존 로드맵의 결합)
+
+1. **(상시)** 터미널에서 `python -m ui.server` → Control 탭에서 threshold sim 시작 → P0 수집 (목표 slug 30+, 현재 4). ⚠ Claude 세션이 띄운 서버는 세션 종료와 함께 꺼짐 — 오래 돌릴 땐 반드시 본인 터미널에서
+2. **구조 개선 #1·#2** (backtest 엔진 통일, tests/) — Phase D의 기반
+3. **Phase D 구현** → slug 30+ 도달 시 UI에서 재평가 (그 전이라도 터미널로 `data_prep`→`engine` 가능)
+4. 재평가에서 threshold 기대값 유지 확인 → **P2 실행 품질** (SELL 스윕 스레드 분리 / TP 스윕화 / USDC 잔고 가드) — UI가 아닌 core 작업
+5. **Phase E** (live 가드) — P2 완료 후
+6. live 소액 재개 판단 — 기준 불변: sim 30+ 무결 + 백테스트 기대값 플러스 + P2 완료
+
+---
+
+### 구조 감사 (2026-07-11) — 현재 구조 / 평가 / 개선안
+
+> 사용자 질문: "전역 모듈 + 전략별 모듈로 나뉘어야 할 것 같은데 이게 제대로 된 건지?"
+> **결론: 그 분리가 정확히 현재 구조이고, 골격은 올바르다. 개선 여지는 골격이 아니라 ① backtest의 전략 로직 이중화 ② 검증/스키마의 위치 ③ 테스트 부재 ④ 런타임 상태 파일 산재에 있다.**
+
+#### 현재 구조와 모듈 역할 (총 ~3.9k LOC)
+
+```
+core/        전역 엔진 — 전략을 모름. 단방향 스트림의 골격
+  adapters_polymarket.py 112   시세·토큰ID (Gamma/CLOB, 재시도·백오프)
+  slug_loop.py           128   이벤트 소스 (1s tick, 15분 slug 롤링)
+  runner.py              165   조립 + CLI (config→adapter→loop→strategy→executor→account→sink)
+  executor_sim.py     60 / executor_live.py 491   주문 집행 (무상태)
+  account_sim.py     132 / account_live.py  184   포지션 단일 진실(SOT)
+  logger.py              173   CSV sink (append + run_id)
+  printer.py             111   콘솔 sink
+  control.py              77   stop-file/heartbeat (UI 연동, Phase A에서 추가)
+
+strategies/  전략 플러그인 — 1전략=1모듈, base.py 인터페이스(on_event/on_trade/debug_state)
+  base.py 42 · threshold.py 192 · ma_breakout.py 281 · __init__.py(REGISTRY)
+
+configs/     전략별 JSON (+ backups/ 자동 백업, gitignore)
+backtest/    engine.py 241(실제 strategies/ 코드 리플레이 ✅) · run_grid.py 308 ·
+             backtest.py 301 · sweep_threshold.py 66 · data_prep.py 93
+ui/          server 142 · procman 177 · metrics 252 · configstore 160 · static/index.html
+루트 상태     sim_account_<전략>.json · logs/(ctl/ 포함)
+문서          SPEC(명세) · CLAUDE(운영규칙) · ANALYSIS(리팩토링 기록) · STATUS(구 로드맵) ·
+             WORKLOG(본 기록) · REPORT.html(현황 리포트)
+레거시        polybots_MA/ · polybots_pre/ · polybots_backtest/ (읽기 전용, 각자 git)
+```
+
+**의존 방향** (건강함 — 역방향 없음):
+- strategies → base만 (core를 모름)
+- core.runner → strategies.REGISTRY (조립 지점 한 곳)
+- ui → core와 **프로세스/파일 경유로만** 결합 (subprocess + logs/ctl + configs) + REGISTRY import
+- backtest.engine → strategies + core 일부 (리플레이용)
+
+#### 평가 — 잘된 점
+
+- 사용자의 직관("전역 + 전략별")과 구조가 일치. **새 전략 추가 비용 = 파일 1개 + config 1개 + REGISTRY 1줄** — 플러그인 구조가 실제로 동작함 (UI 전략 목록·백테스트도 자동 인식)
+- 핵심 불변식(단방향 스트림, Account=SOT, executor 무상태)이 모듈 경계와 일치 — 분리에 이유가 있음
+- sim/live가 executor/account 페어 교체만으로 갈림 — live 코드가 sim 경로를 오염 안 함
+- ETH/SOL/XRP 확장은 config의 slug prefix 변경만으로 가능한 구조 (SPEC ver4 대비 완료)
+
+#### 개선안 (우선순위순)
+
+| # | 항목 | 내용 | 노력 | 시점 |
+|---|---|---|---|---|
+| 1 | **backtest 전략 로직 이중화 제거** | `backtest.py`(무비용 구버전)와 `run_grid.py`가 MA 로직을 재구현 — 파일 주석 스스로 "전략 바뀌면 sync 필요" 인정. engine.py 방식(실전략 리플레이)으로 통일: engine의 리플레이 코어를 함수로 추출 → run_grid는 그걸 프로세스풀로 fan-out, backtest.py는 폐기 | 중 | **Phase D 착수 전** |
+| 2 | **tests/ 신설** | 리팩토링 때의 7개 파이프라인 테스트가 커밋 안 된 일회성이었음. tests/로 영구화: 거부매수 재시도·exit 래치·logger append·PerfReport 집계·configstore 검증 | 중 | Phase D 착수 전 |
+| 3 | config 검증 위치 이동 | 검증 규칙이 ui/configstore.py에만 있음 → core/config_schema.py로 옮겨 **runner 시작 시에도 검증** (지금은 잘못된 config로도 봇이 뜸). UI는 그걸 import | 소 | 아무 때나 |
+| 4 | 런타임 상태 파일 정리 | sim_account_*.json이 루트에 산재 → `state/` 디렉토리로. backtest 결과 CSV(grid_results*.csv 등)도 `backtest/results/`로 | 소 | Phase D에서 자연 해결 |
+| 5 | 로그 스키마 상수화 | CSV 컬럼명이 core/logger·ui/metrics·backtest에 문자열로 중복 — logger가 스키마 상수를 노출하고 나머지가 import | 소 | 아무 때나 |
+| 6 | executor/account 계약 명시화 | 현재 duck-typing — strategies/base.py처럼 Protocol/ABC로 인터페이스 문서화 (신규 구현·모킹 시 실수 방지) | 소 | 아무 때나 |
+| 7 | 레거시 3폴더 정리 | P0 재검증으로 새 구조 신뢰 확보 후 archive/ 하위 이동 또는 삭제 (git 스냅샷 존재: MA d0129ca, pre 3c2186c) | 소 | P0 완료 후 |
+| 8 | 패키징 | pyproject.toml (+콘솔 스크립트) — 현재 `-m` 실행으로 충분, 서버 배포(P3) 시점에 | 소 | P3 |
+
+**하지 않기로 한 것**: core를 더 잘게 쪼개기(이벤트버스, DI 프레임워크 등) — 현재 규모(~4k LOC)에서 추상화 비용 > 이득. 전략이 5개+ 되고 자산이 늘면 재검토.
