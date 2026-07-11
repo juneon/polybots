@@ -29,7 +29,7 @@
   - ui: `server.py`(FastAPI) + `procman.py`(시작/정지/상태) + `static/index.html`(Control 탭)
   - 기능: 전략 선택, sim 시작/정지, 실행 상태 카드(heartbeat), slug 수집 게이지(n/30), 전체 정지
 - **Phase B — Performance 탭** ✅ 완료 (2026-07-11): `ui/metrics.py` — 전략/run/slug별 실현 PnL, equity curve, 계좌 잔고, run 히스토리
-- **Phase C — Config 탭**: 스키마 기반 폼 + 검증 + `configs/backups/` 자동 백업 + diff. `account.*` 잠금
+- **Phase C — Config 탭** ✅ 완료 (2026-07-11): 스키마 기반 폼 + 검증 + `configs/backups/` 자동 백업 + diff. `account.*` 잠금
 - **Phase D — Backtest 탭**: `ui/jobs.py` — data_prep/engine/sweep/grid 백그라운드 실행 + 진행률 + 결과 아카이브(`backtest/results/`) 비교
 - **Phase E — live + 마감**: live 시작 3단계 가드(모드 선택→확인 문구 타이핑→config 요약), kill switch 정식화, 로그 뷰어
 
@@ -97,3 +97,24 @@
 **검증**: `/api/perf`가 기존 실데이터를 정확 집계 — ma_breakout sim 실현 −$2.40(2 slug 청산, 12체결), threshold sim −$0.80(1청산) + 오늘 스모크의 미청산 slug 1개(10tk)를 정확히 분리 감지. 프런트 JS는 node --check 통과, 페이지 200 OK.
 
 **다음 작업**: **Phase C (Config 탭)** — 스키마 기반 폼 + 검증 + 백업/diff + account 잠금
+
+### 2026-07-11 (같은 세션) — Phase C 완료: Config 탭
+
+**추가 결정**:
+
+| # | 결정 | 이유 |
+|---|---|---|
+| D13 | 편집 모델 = 클라이언트가 `{"dotted.path": 값}` 변경분만 전송, 서버가 현재 파일 위에 적용. **UI로 새 키 추가 불가, 존재하는 키만 수정** | 파일 전체 교체 방식보다 안전 — 검증·diff가 경로 단위로 명확 |
+| D14 | 잠금 목록: `account.*`, `gamma_base`, `clob_base`, `event_slug_prefix`, `interval_sec`. 편집 가능: `strategy.*`, `execution.*`, `logging.*` + 루프 스칼라(loop_mode/run_seconds/max_slugs/print_every/timeout_sec) | account는 CLAUDE.md 규칙(변경 시 사용자 확인), 나머지는 마켓 구조 상수 |
+| D15 | 저장 전 무조건 백업 `configs/backups/<이름>.<타임스탬프>.json`, 전부 보존(로테이션 없음), gitignore | config는 작고 이력 가치가 큼 |
+| D16 | 값 검증 = 현재 값과 타입 일치 + 이름 기반 규칙: 가격류(0~1) / 양수(qty_tokens, ma_len) / 비음수(*_sec 등) / enum(loop_mode, 집행 방식 market·limit). nullable은 현재 null인 필드만 | 스키마 파일 별도 관리 없이 config 자체가 스키마 역할 |
+
+**구현**: `ui/configstore.py` (검증/백업/diff) + `GET·PUT /api/config/<전략>` + Config 탭 폼(타입별 입력: checkbox/select/number/text, 변경 행 하이라이트, 저장 전 diff 미리보기, 실행 중이면 "재시작 필요" 배너, 잠긴 항목 읽기전용 표시)
+
+**검증 (전부 통과)**: 유효 저장→파일 반영+백업 생성→되돌리기 / 같은 초 이중 저장 시 백업 파일명 충돌 버그 발견→`_1` 시퀀스로 수정 / 거부 6종(잠긴 경로·범위 초과·미존재 키·타입 불일치·enum 위반·양수 위반) 전부 400 / no-op 저장은 파일 안 씀
+
+**메모**:
+- UI로 저장하면 JSON 서식이 정규화됨(원본의 구분용 빈 줄 사라짐, indent 2 유지) — 값은 보존되므로 허용. 테스트로 발생한 서식 변화는 git checkout으로 원복함
+- config는 봇 시작 시 1회 로드 → 저장해도 실행 중인 봇에는 미반영(UI가 배너로 경고)
+
+**다음 작업**: **Phase D (Backtest 탭)** — `ui/jobs.py` 백그라운드 실행 + 진행률 + 결과 아카이브 비교

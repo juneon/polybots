@@ -17,9 +17,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from typing import Any, Dict
+
 from strategies import REGISTRY
 from .procman import ProcManager
 from .metrics import SlugCollection, PerfReport
+from . import configstore
+from .configstore import ConfigError
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).resolve().parent / "static"
@@ -37,6 +41,14 @@ perf = PerfReport()
 class BotReq(BaseModel):
     strategy: str
     mode: str = "sim"
+
+
+class ConfigChanges(BaseModel):
+    changes: Dict[str, Any]
+
+
+def _is_running(strategy: str) -> bool:
+    return any(b["strategy"] == strategy for b in procman.status())
 
 
 @app.get("/")
@@ -68,6 +80,32 @@ def status():
 @app.get("/api/perf")
 def perf_report():
     return perf.report()
+
+
+@app.get("/api/config/{strategy}")
+def config_get(strategy: str):
+    if strategy not in REGISTRY:
+        raise HTTPException(404, f"unknown strategy: {strategy}")
+    try:
+        d = configstore.describe(strategy)
+    except FileNotFoundError:
+        raise HTTPException(404, f"config not found: configs/{strategy}.json")
+    d["running"] = _is_running(strategy)
+    return d
+
+
+@app.put("/api/config/{strategy}")
+def config_put(strategy: str, req: ConfigChanges):
+    if strategy not in REGISTRY:
+        raise HTTPException(404, f"unknown strategy: {strategy}")
+    try:
+        res = configstore.apply_changes(strategy, req.changes)
+    except FileNotFoundError:
+        raise HTTPException(404, f"config not found: configs/{strategy}.json")
+    except ConfigError as e:
+        raise HTTPException(400, str(e))
+    res["running"] = _is_running(strategy)
+    return res
 
 
 @app.post("/api/bot/start")

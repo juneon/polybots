@@ -20,3 +20,4 @@ polybots_backtest/
 
 # local-only claude settings
 .claude/settings.local.json
+configs/backups/

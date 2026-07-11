@@ -114,6 +114,26 @@
   .sign-pos { color:var(--pos); font-weight:600; } .sign-neg { color:var(--neg); font-weight:600; }
   .subhead { font-size:12px; font-weight:700; color:var(--muted); margin:12px 0 6px; letter-spacing:.04em; }
   .tbl-scroll { overflow-x:auto; }
+
+  /* config tab */
+  .cfg-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:4px 18px; margin-bottom:6px; }
+  .frow { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:4px 8px; border-radius:7px; }
+  .frow.changed { background:var(--accent-soft); }
+  .frow label { font-size:12px; font-family:Consolas,"D2Coding",monospace; color:var(--muted); }
+  .frow input[type=number], .frow input[type=text], .frow select {
+    width:118px; text-align:right; padding:4px 8px; font-size:12.5px;
+    border:1px solid var(--line); border-radius:6px; background:var(--surface); color:var(--ink);
+    font-family:Consolas,"D2Coding",monospace;
+  }
+  .frow input[type=checkbox] { width:16px; height:16px; accent-color:var(--accent); }
+  .savebar { display:flex; gap:10px; align-items:flex-start; margin-top:14px; flex-wrap:wrap; }
+  .diffbox { font-size:12px; font-family:Consolas,"D2Coding",monospace; color:var(--muted); line-height:1.7; }
+  .banner {
+    border:1px solid var(--line); border-left:3px solid var(--warn); border-radius:8px;
+    background:color-mix(in srgb,var(--warn) 7%,transparent);
+    padding:8px 12px; font-size:12.5px; margin-bottom:12px;
+  }
+  pre.lock { font-size:11.5px; opacity:.8; margin-top:4px; background:var(--code-bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; overflow-x:auto; }
   #toast {
     position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
     background:var(--ink); color:var(--bg); font-size:13px; padding:8px 18px; border-radius:8px;
@@ -170,8 +190,26 @@
     <div id="perf-root"><div class="panel"><div class="todo">로딩 중…</div></div></div>
   </div>
 
+  <!-- ===== Config ===== -->
+  <div id="tab-config" hidden>
+    <div class="panel">
+      <h2>전략 Config 편집</h2>
+      <div class="startrow" style="margin-bottom:12px">
+        <select id="cfg-strategy" onchange="loadConfig()"></select>
+        <button onclick="loadConfig()">↺ 다시 불러오기</button>
+        <span class="hint">저장 시 자동 백업(configs/backups/) · 변경은 <b>다음 봇 시작부터</b> 반영</span>
+      </div>
+      <div class="banner" id="cfg-running" hidden>⚠ 이 전략의 봇이 실행 중 — 저장해도 지금 도는 봇에는 반영되지 않음. 정지 후 재시작해야 적용된다.</div>
+      <div id="cfg-form"><div class="todo">로딩 중…</div></div>
+      <div class="savebar">
+        <button class="primary" id="cfg-save" onclick="saveConfig()" disabled>저장</button>
+        <button id="cfg-cancel" onclick="loadConfig()" disabled>변경 취소</button>
+        <div class="diffbox" id="cfg-diff"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== placeholders ===== -->
-  <div id="tab-config" hidden><div class="panel"><div class="todo">Config 탭 — Phase C에서 구현 (검증 폼 + 자동 백업 + diff)</div></div></div>
   <div id="tab-backtest" hidden><div class="panel"><div class="todo">Backtest 탭 — Phase D에서 구현 (data_prep / engine / sweep 실행 + 결과 비교)</div></div></div>
 
   <div id="toast"></div>
@@ -197,6 +235,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   ["control","perf","config","backtest"].forEach(t =>
     $("#tab-" + t).hidden = (t !== activeTab));
   if (activeTab === "perf") loadPerf();
+  if (activeTab === "config" && !cfgData) loadConfig();
 });
 
 async function api(path, opts) {
@@ -208,9 +247,11 @@ async function api(path, opts) {
 
 async function loadStrategies() {
   const list = await api("/api/strategies");
-  $("#sel-strategy").innerHTML = list.map(s =>
+  const opts = list.map(s =>
     `<option value="${s.name}" ${s.config_exists ? "" : "disabled"}>${s.name}${s.config_exists ? "" : " (config 없음)"}</option>`
   ).join("");
+  $("#sel-strategy").innerHTML = opts;
+  $("#cfg-strategy").innerHTML = opts;
 }
 
 async function startBot() {
@@ -417,6 +458,117 @@ function drawEquity(box, pts) {
 async function loadPerf() {
   try { renderPerf(await api("/api/perf")); }
   catch (e) { $("#perf-root").innerHTML = `<div class="panel"><div class="todo">로드 실패: ${esc(e.message)}</div></div>`; }
+}
+
+/* ===== Config (Phase C) ===== */
+let cfgData = null;      // 서버 응답 (config + 편집 메타)
+let cfgOriginal = {};    // path -> 원본값
+
+const SECTION_TITLES = {
+  _loop: "실행 루프", strategy: "strategy — 전략 파라미터",
+  execution: "execution — 주문 집행", logging: "logging — 로그 스위치",
+};
+
+function cfgInput(path, val, enums) {
+  const id = `cf-${path.replace(/\./g, "-")}`;
+  const leaf = path.split(".").pop();
+  if (typeof val === "boolean")
+    return `<input type="checkbox" id="${id}" data-path="${path}" ${val ? "checked" : ""} onchange="cfgChanged()">`;
+  if (typeof val === "string" && enums[leaf])
+    return `<select id="${id}" data-path="${path}" onchange="cfgChanged()">${
+      enums[leaf].map(o => `<option ${o === val ? "selected" : ""}>${o}</option>`).join("")}</select>`;
+  if (typeof val === "string")
+    return `<input type="text" id="${id}" data-path="${path}" value="${esc(val)}" oninput="cfgChanged()">`;
+  // number or null
+  return `<input type="number" step="any" id="${id}" data-path="${path}" value="${val ?? ""}" placeholder="null" oninput="cfgChanged()">`;
+}
+
+function renderConfigForm(d) {
+  cfgOriginal = {};
+  const enums = d.enums || {};
+  const groups = [];
+
+  const topRows = d.editable_top_scalars.map(k => {
+    cfgOriginal[k] = d.config[k];
+    return {path: k, val: d.config[k]};
+  });
+  if (topRows.length) groups.push(["_loop", topRows]);
+
+  for (const sec of d.editable_sections) {
+    const rows = [];
+    for (const [k, v] of Object.entries(d.config[sec] || {})) {
+      if (typeof v === "object" && v !== null) continue;  // 스칼라만 편집
+      const path = `${sec}.${k}`;
+      cfgOriginal[path] = v;
+      rows.push({path, val: v});
+    }
+    groups.push([sec, rows]);
+  }
+
+  $("#cfg-form").innerHTML = groups.map(([sec, rows]) => `
+    <div class="subhead">${SECTION_TITLES[sec] || sec}</div>
+    <div class="cfg-grid">${rows.map(r => `
+      <div class="frow" id="fr-${r.path.replace(/\./g, "-")}">
+        <label for="cf-${r.path.replace(/\./g, "-")}">${esc(r.path.split(".").pop())}</label>
+        ${cfgInput(r.path, r.val, enums)}
+      </div>`).join("")}
+    </div>`).join("") + `
+    <div class="subhead">잠긴 항목 (UI로 편집 불가${d.locked_keys.includes("account") ? " · account 변경은 별도 확인 필요" : ""})</div>
+    <pre class="lock">${esc(d.locked_keys.map(k => `${k}: ${JSON.stringify(d.config[k])}`).join("\n"))}</pre>`;
+  cfgChanged();
+}
+
+function cfgCollect() {
+  const changes = {};
+  document.querySelectorAll("#cfg-form [data-path]").forEach(el => {
+    const path = el.dataset.path, orig = cfgOriginal[path];
+    let v;
+    if (el.type === "checkbox") v = el.checked;
+    else if (el.type === "number") v = el.value.trim() === "" ? null : Number(el.value);
+    else v = el.value;
+    const changed = (v === null || orig === null) ? v !== orig : v !== orig;
+    const row = $("#fr-" + path.replace(/\./g, "-"));
+    if (row) row.classList.toggle("changed", changed);
+    if (changed) changes[path] = v;
+  });
+  return changes;
+}
+
+function cfgChanged() {
+  const changes = cfgCollect();
+  const n = Object.keys(changes).length;
+  $("#cfg-save").disabled = !n;
+  $("#cfg-cancel").disabled = !n;
+  $("#cfg-diff").innerHTML = n
+    ? Object.entries(changes).map(([p, v]) =>
+        `${esc(p)}: ${esc(JSON.stringify(cfgOriginal[p]))} → <b>${esc(JSON.stringify(v))}</b>`).join("<br>")
+    : "";
+}
+
+async function loadConfig() {
+  const sel = $("#cfg-strategy");
+  if (!sel.value) return;
+  try {
+    cfgData = await api("/api/config/" + sel.value);
+    $("#cfg-running").hidden = !cfgData.running;
+    renderConfigForm(cfgData);
+  } catch (e) {
+    $("#cfg-form").innerHTML = `<div class="todo">로드 실패: ${esc(e.message)}</div>`;
+  }
+}
+
+async function saveConfig() {
+  const changes = cfgCollect();
+  if (!Object.keys(changes).length) return;
+  try {
+    const res = await api("/api/config/" + $("#cfg-strategy").value, {
+      method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({changes}),
+    });
+    toast(`저장됨 (${res.diff.length}건 변경, 백업: ${res.backup ? res.backup.split(/[\\/]/).pop() : "없음"})`
+      + (res.running ? " — 실행 중인 봇은 재시작해야 반영" : ""));
+    loadConfig();
+  } catch (e) { toast("저장 실패: " + e.message); }
 }
 
 loadStrategies().catch(e => toast("전략 목록 로드 실패: " + e.message));
