@@ -8,3 +8,7 @@ pandas
 # live mode only
 py-clob-client
 python-dotenv
+
+# control UI (ui/server.py)
+fastapi
+uvicorn

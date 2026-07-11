@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>polybots control</title>
+<style>
+  :root {
+    --bg:#FAF9F6; --surface:#FFFFFF; --ink:#20241F; --muted:#6B7268; --line:#E2E1D8;
+    --accent:#1E6E5A; --accent-soft:#EAF2EE; --pos:#1D8A55; --neg:#C2483F; --warn:#A8681C;
+    --code-bg:#F2F1EB;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#131511; --surface:#1B1E19; --ink:#E8EAE4; --muted:#9AA096; --line:#2E322B;
+      --accent:#58B294; --accent-soft:#21302A; --pos:#35A873; --neg:#D96157; --warn:#C98F4A;
+      --code-bg:#22251F;
+    }
+  }
+  * { box-sizing:border-box; margin:0; }
+  body {
+    background:var(--bg); color:var(--ink);
+    font-family:"Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
+    font-size:14.5px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  main { max-width:960px; margin:0 auto; padding:28px 20px 60px; }
+  code,.num { font-family:Consolas,"D2Coding",monospace; font-variant-numeric:tabular-nums; }
+
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  h1 { font-size:19px; letter-spacing:-.01em; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); display:inline-block; margin-right:6px; }
+  .dot.on { background:var(--pos); }
+  #conn { font-size:12.5px; color:var(--muted); }
+  .spacer { flex:1; }
+
+  button {
+    font:inherit; font-size:13px; font-weight:600; cursor:pointer;
+    border:1px solid var(--line); border-radius:8px; padding:6px 14px;
+    background:var(--surface); color:var(--ink);
+  }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.primary:hover { opacity:.9; color:#fff; }
+  button.danger { color:var(--neg); }
+  button.danger:hover { border-color:var(--neg); background:color-mix(in srgb,var(--neg) 8%,transparent); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  select {
+    font:inherit; font-size:13px; padding:6px 10px; border-radius:8px;
+    border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  }
+
+  nav { display:flex; gap:4px; margin:22px 0 18px; border-bottom:1px solid var(--line); }
+  nav button {
+    border:none; border-bottom:2px solid transparent; border-radius:0; background:none;
+    padding:8px 14px; color:var(--muted); font-weight:600;
+  }
+  nav button.active { color:var(--accent); border-bottom-color:var(--accent); }
+
+  .chip {
+    display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700;
+    letter-spacing:.05em; border-radius:99px; padding:2px 10px; white-space:nowrap;
+  }
+  .chip::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .chip.run  { color:var(--pos);  background:color-mix(in srgb,var(--pos) 12%,transparent); }
+  .chip.warn { color:var(--warn); background:color-mix(in srgb,var(--warn) 14%,transparent); }
+  .chip.off  { color:var(--muted);background:color-mix(in srgb,var(--muted) 12%,transparent); }
+  .chip.sim  { color:var(--accent); background:var(--accent-soft); }
+  .chip.live { color:var(--neg); background:color-mix(in srgb,var(--neg) 12%,transparent); }
+
+  .panel { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:16px 18px; }
+  .panel + .panel { margin-top:14px; }
+  .panel h2 { font-size:14px; margin-bottom:10px; color:var(--muted); font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+
+  .startrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .hint { font-size:12px; color:var(--muted); }
+
+  .bots { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
+  .bot { border:1px solid var(--line); border-radius:10px; padding:12px 14px; background:var(--bg); }
+  .bot .head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .bot .name { font-weight:700; font-size:15px; flex:1; }
+  .kv { display:grid; grid-template-columns:96px 1fr; gap:2px 10px; font-size:12.5px; }
+  .kv .k { color:var(--muted); }
+  .bot .foot { margin-top:10px; display:flex; gap:8px; }
+  .empty { color:var(--muted); font-size:13px; padding:6px 2px; }
+
+  .gauge { margin-bottom:10px; }
+  .gauge .lbl { display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:3px; }
+  .gauge .rail { height:10px; border-radius:6px; background:var(--code-bg); overflow:hidden; }
+  .gauge .fill { height:100%; background:var(--accent); border-radius:6px; transition:width .4s; }
+
+  .todo { color:var(--muted); font-size:13.5px; padding:24px 6px; text-align:center; }
+  #toast {
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+    background:var(--ink); color:var(--bg); font-size:13px; padding:8px 18px; border-radius:8px;
+    opacity:0; pointer-events:none; transition:opacity .25s; max-width:80vw;
+  }
+  #toast.show { opacity:.95; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>polybots control</h1>
+    <span id="conn"><span class="dot"></span>연결 중…</span>
+    <span class="spacer"></span>
+    <button class="danger" onclick="stopAll()">■ 전체 정지</button>
+  </header>
+
+  <nav>
+    <button class="active" data-tab="control">Control</button>
+    <button data-tab="perf">Performance</button>
+    <button data-tab="config">Config</button>
+    <button data-tab="backtest">Backtest</button>
+  </nav>
+
+  <!-- ===== Control ===== -->
+  <div id="tab-control">
+    <div class="panel">
+      <h2>봇 시작</h2>
+      <div class="startrow">
+        <select id="sel-strategy"></select>
+        <select id="sel-mode">
+          <option value="sim" selected>sim</option>
+          <option value="live" disabled>live (Phase E에서 활성화)</option>
+        </select>
+        <button class="primary" onclick="startBot()">▶ 시작</button>
+        <span class="hint">sim은 실주문 없음 · 로그는 append + run_id로 누적</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>실행 상태</h2>
+      <div class="bots" id="bots"></div>
+      <div class="empty" id="bots-empty" hidden>실행 중인 봇 없음</div>
+    </div>
+
+    <div class="panel">
+      <h2>데이터 수집 진행률 (P0 — 백테스트 재평가 기준: slug 30개)</h2>
+      <div id="gauges"></div>
+    </div>
+  </div>
+
+  <!-- ===== placeholders ===== -->
+  <div id="tab-perf" hidden><div class="panel"><div class="todo">Performance 탭 — Phase B에서 구현 (전략·run별 실현 PnL, equity curve, 계좌 잔고)</div></div></div>
+  <div id="tab-config" hidden><div class="panel"><div class="todo">Config 탭 — Phase C에서 구현 (검증 폼 + 자동 백업 + diff)</div></div></div>
+  <div id="tab-backtest" hidden><div class="panel"><div class="todo">Backtest 탭 — Phase D에서 구현 (data_prep / engine / sweep 실행 + 결과 비교)</div></div></div>
+
+  <div id="toast"></div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let toastTimer;
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+/* tabs */
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
+  ["control","perf","config","backtest"].forEach(t =>
+    $("#tab-" + t).hidden = (t !== b.dataset.tab));
+});
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+
+async function loadStrategies() {
+  const list = await api("/api/strategies");
+  $("#sel-strategy").innerHTML = list.map(s =>
+    `<option value="${s.name}" ${s.config_exists ? "" : "disabled"}>${s.name}${s.config_exists ? "" : " (config 없음)"}</option>`
+  ).join("");
+}
+
+async function startBot() {
+  const strategy = $("#sel-strategy").value, mode = $("#sel-mode").value;
+  try {
+    const r = await api("/api/bot/start", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({strategy, mode}),
+    });
+    toast(`시작됨: ${strategy} (${r.run_id})`);
+  } catch (e) { toast("시작 실패: " + e.message); }
+  refresh();
+}
+
+async function stopBot(strategy) {
+  try {
+    const r = await api("/api/bot/stop", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({strategy}),
+    });
+    toast(`정지됨: ${strategy}` + (r.forced ? " (강제 종료됨)" : ""));
+  } catch (e) { toast("정지 실패: " + e.message); }
+  refresh();
+}
+
+async function stopAll() {
+  try {
+    const r = await api("/api/bot/stop_all", {method: "POST"});
+    toast(r.length ? `전체 정지: ${r.map(x => x.strategy).join(", ")}` : "실행 중인 봇 없음");
+  } catch (e) { toast("정지 실패: " + e.message); }
+  refresh();
+}
+
+function fmtLeft(s) {
+  if (s === "" || s == null) return "–";
+  s = Math.max(0, s | 0);
+  return `${(s / 60) | 0}:${String(s % 60).padStart(2, "0")}`;
+}
+function fmtUp(s) {
+  if (s == null) return "–";
+  const h = (s / 3600) | 0, m = ((s % 3600) / 60) | 0;
+  return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
+function esc(x) { return String(x ?? "").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
+
+function renderBots(bots) {
+  $("#bots-empty").hidden = bots.length > 0;
+  $("#bots").innerHTML = bots.map(b => {
+    const hb = b.heartbeat || {};
+    const pos = hb.position;
+    const state = b.heartbeat_stale ? '<span class="chip warn">STALE</span>'
+                : '<span class="chip run">RUNNING</span>';
+    const modeChip = `<span class="chip ${b.mode === "live" ? "live" : "sim"}">${esc(b.mode)}</span>`;
+    const managed = b.managed ? "" : ' <span class="chip warn">외부 실행</span>';
+    return `<div class="bot">
+      <div class="head"><span class="name">${esc(b.strategy)}</span>${modeChip}${state}${managed}</div>
+      <div class="kv">
+        <span class="k">run_id</span><span class="num">${esc(b.run_id)}</span>
+        <span class="k">slug</span><span class="num">${esc(hb.slug || "–")}</span>
+        <span class="k">남은시간 / tick</span><span class="num">${fmtLeft(hb.time_left_sec)} / ${esc(hb.tick ?? "–")}</span>
+        <span class="k">포지션</span><span class="num">${pos ? `${esc(pos.side)} ${esc(pos.qty_tokens)}tk @${esc(pos.entry)}` : "없음"}</span>
+        <span class="k">cash (sim)</span><span class="num">${hb.cash == null ? "–" : "$" + Number(hb.cash).toFixed(2)}</span>
+        <span class="k">가동시간</span><span class="num">${fmtUp(b.uptime_sec)}${b.pid ? ` · pid ${b.pid}` : ""}</span>
+      </div>
+      <div class="foot">${b.managed ? `<button class="danger" onclick="stopBot('${esc(b.strategy)}')">정지</button>` : '<span class="hint">터미널에서 시작된 프로세스 — 해당 터미널에서 정지</span>'}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderGauges(col) {
+  const names = Object.keys(col.slugs || {}).sort();
+  if (!names.length) { $("#gauges").innerHTML = '<div class="empty">수집된 데이터 없음</div>'; return; }
+  $("#gauges").innerHTML = names.map(n => {
+    const c = col.slugs[n], pct = Math.min(100, 100 * c / col.target);
+    return `<div class="gauge">
+      <div class="lbl"><span>${esc(n)}</span><span class="num">${c} / ${col.target} slugs</span></div>
+      <div class="rail"><div class="fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
+}
+
+async function refresh() {
+  try {
+    const st = await api("/api/status");
+    $("#conn").innerHTML = '<span class="dot on"></span>서버 연결됨';
+    renderBots(st.bots || []);
+    renderGauges(st.collection || {target: 30, slugs: {}});
+  } catch (e) {
+    $("#conn").innerHTML = '<span class="dot"></span>서버 연결 끊김';
+  }
+}
+
+loadStrategies().catch(e => toast("전략 목록 로드 실패: " + e.message));
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

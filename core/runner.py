@@ -24,6 +24,7 @@ from .executor_sim import SimExecutor
 from .account_sim import SimAccount
 from .logger import Logger
 from .printer import Printer
+from .control import RunControl, snapshot_status
 from strategies import REGISTRY, create_strategy
 
 log = logging.getLogger("core.runner")
@@ -36,29 +37,37 @@ def load_config(path: Path) -> dict:
         return json.load(f)
 
 
-def build_account_executor(mode: str, cfg: dict, pm: PolymarketAdapter):
+def build_account_executor(mode: str, cfg: dict, pm: PolymarketAdapter, strategy_name: str):
     if mode == "live":
         # imported lazily: live deps (py_clob_client, .env keys) are not needed for sim
         from .account_live import LiveAccount
         from .executor_live import LiveExecutor
         return LiveAccount(cfg), LiveExecutor(cfg, pm)
-    return SimAccount(str(ROOT / "sim_account.json")), SimExecutor(guard=True)
+    # per-strategy account file: concurrent sims must not share cash/position
+    return SimAccount(str(ROOT / f"sim_account_{strategy_name}.json")), SimExecutor(guard=True)
 
 
 def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
     pm = PolymarketAdapter(cfg)
-    account, executor = build_account_executor(mode, cfg, pm)
+    account, executor = build_account_executor(mode, cfg, pm, strategy_name)
     strategy = create_strategy(strategy_name, cfg)
     logger = Logger(cfg, run_id=run_id, logs_dir=str(ROOT / "logs"))
     printer = Printer(cfg)
+    ctl = RunControl(run_id, ctl_dir=str(ROOT / "logs" / "ctl"))
 
     cur_slug = None
     slug_idx = 0
+    stop_reason = "loop_exit"
 
     try:
         for ev in slug_loop(pm, cfg):
             et = ev.get("type")
             logger.handle(ev)
+
+            if ctl.stop_requested():
+                stop_reason = "stop_requested"
+                log.info("stop file detected — shutting down gracefully")
+                break
 
             if et in ("slug_init", "slug_change"):
                 slug = ev.get("slug")
@@ -74,6 +83,11 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
                             executor.reconcile_on_slug(slug, account)
                         except Exception as e:
                             log.warning("reconcile_on_slug failed for %s: %r", slug, e)
+
+                ctl.heartbeat(snapshot_status(
+                    "running", strategy=strategy_name, mode=mode,
+                    ev=ev, account=account, slug_count=slug_idx,
+                ))
 
             elif et == "quote":
                 intents = strategy.on_event(ev, account)
@@ -95,6 +109,10 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
                     logger.snapshot(account, ev)
 
                 printer.on_quote(ev, account, strategy)
+                ctl.heartbeat(snapshot_status(
+                    "running", strategy=strategy_name, mode=mode,
+                    ev=ev, account=account, slug_count=slug_idx,
+                ))
 
             elif et == "warn":
                 log.warning("quote failed (slug=%s tick=%s): %s", ev.get("slug"), ev.get("tick"), ev.get("error"))
@@ -103,8 +121,13 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
                 log.info("loop exit: %s", ev.get("reason"))
                 break
     except KeyboardInterrupt:
+        stop_reason = "keyboard_interrupt"
         log.info("interrupted by user — closing logs")
     finally:
+        ctl.heartbeat(snapshot_status(
+            "stopped", strategy=strategy_name, mode=mode,
+            account=account, slug_count=slug_idx, stop_reason=stop_reason,
+        ))
         logger.close()
 
 
@@ -116,6 +139,8 @@ def main(argv=None) -> None:
                     help="sim (default) or live — live places REAL orders")
     ap.add_argument("--config", default=None,
                     help="config path (default: configs/<strategy>.json)")
+    ap.add_argument("--run-id", default=None,
+                    help="run id override (used by the UI server so it can address ctl files)")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -123,7 +148,7 @@ def main(argv=None) -> None:
     cfg_path = Path(args.config) if args.config else ROOT / "configs" / f"{args.strategy}.json"
     cfg = load_config(cfg_path)
 
-    run_id = time.strftime("%Y%m%d_%H%M%S") + f"_{args.strategy}_{args.mode}"
+    run_id = args.run_id or (time.strftime("%Y%m%d_%H%M%S") + f"_{args.strategy}_{args.mode}")
 
     if args.mode == "live":
         print("=" * 70)

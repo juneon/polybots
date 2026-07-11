@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>polybots 작업 리포트 — 2026-07-06/07</title>
+<title>polybots 진행 현황 리포트 — 2026-07-11 기준</title>
 <style>
   :root {
     --bg: #FAF9F6;
@@ -87,6 +87,8 @@
     display: flex; flex-direction: column; gap: 4px;
   }
   .verdict strong { color: var(--accent); }
+  .verdict.alert { border-left-color: var(--warn); }
+  .verdict.alert strong { color: var(--warn); }
 
   /* KPI tiles */
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 20px; }
@@ -97,6 +99,7 @@
   .tile .k { font-size: 24px; font-weight: 700; letter-spacing: -.01em; }
   .tile .k.pos { color: var(--pos); }
   .tile .k.neg { color: var(--neg); }
+  .tile .k.warn { color: var(--warn); }
   .tile .l { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
 
   /* timeline */
@@ -125,6 +128,7 @@
   .chip.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
   .chip.ok   { color: var(--pos); background: color-mix(in srgb, var(--pos) 12%, transparent); }
   .chip.info { color: var(--accent); background: var(--accent-soft); }
+  .chip.idle { color: var(--muted); background: color-mix(in srgb, var(--muted) 12%, transparent); }
 
   /* tables */
   .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
@@ -178,6 +182,28 @@
   .nodebox .nb-t { font-weight: 700; font-size: 13.5px; }
   .nodebox .nb-d { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
 
+  /* step list for resume guide */
+  .steps { counter-reset: step; list-style: none; padding: 0; margin: 12px 0 0; }
+  .steps li {
+    counter-increment: step; position: relative; padding: 0 0 16px 44px;
+  }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: 0;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-weight: 700; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .steps .st-t { font-weight: 600; margin-bottom: 2px; }
+  .steps .st-d { font-size: 13.5px; color: var(--muted); }
+  .steps pre { margin-top: 6px; }
+
+  .divider-head {
+    margin-top: 60px; padding: 14px 18px; border-radius: 10px;
+    background: var(--accent-soft); border: 1px solid var(--line);
+  }
+  .divider-head h2 { color: var(--accent); }
+
   footer {
     margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--line);
     font-size: 12.5px; color: var(--muted);
@@ -190,37 +216,186 @@
 
   <!-- ===================== HEADER ===================== -->
   <header>
-    <span class="eyebrow">Polybots Work Report</span>
-    <h1>리팩토링과 백테스트 현실화 — 하루 작업 전체 기록</h1>
-    <div class="sub">2026-07-06 밤 ~ 07-07 새벽 · 폴더 전수 분석 → 모노레포 v3.0 → 비용 반영 백테스트 → 전략 판정</div>
+    <span class="eyebrow">Polybots Progress Report</span>
+    <h1>진행 현황 — 어디까지 왔고, 지금 뭘 하면 되는가</h1>
+    <div class="sub">2026-07-11 기준 · 마지막 작업: 07-07 새벽 (4일 공백) · 상세 작업 기록은 본문 후반부에 보존</div>
 
     <div class="verdict">
-      <div><strong>최종 판정</strong> — 백테스트 최적값으로 운용하던 <b>MA breakout은 현실 비용에서 엣지가 소멸</b>
-        (3,600조합 중 학습/검증 동시 플러스 1개, 그마저 무의미). 반면 <b>구형 threshold 전략은 비용 반영 후에도 유효</b>
-        (전 기간 +$27.2, 검증셋 +$2.7)이며 이미 준최적(72조합 중 2위)이었다.</div>
-      <div class="sub">조치: threshold를 주력 후보로 전환 (take_profit 0.98→0.99 반영), threshold sim 가동 중. 라이브 연결은 최후순위 유지.</div>
+      <div><strong>현재 위치 한 줄 요약</strong> — 리팩토링(모노레포 v3.0)과 비용 반영 백테스트(P1)까지 <b>완료</b>.
+        판정: <b>MA breakout은 라이브 부적합, threshold가 주력 후보</b> (tp 0.99 반영됨).
+        지금은 <b>P0 = threshold sim 데이터 수집 단계</b>인데, slug 30개 목표 중 극초기(≈3개)에서 멈춰 있다.</div>
+      <div class="sub">다음 액션은 단 하나: sim을 다시 켜서 데이터를 쌓는 것. 아래 "재개 절차" 3단계 참조. 라이브 연결은 최후순위 유지.</div>
     </div>
 
     <div class="tiles">
-      <div class="tile"><div class="k">3 → 1</div><div class="l">프로젝트 3개(중복 6파일)를 공유 코어 + 전략 플러그인 모노레포로 통합</div></div>
-      <div class="tile"><div class="k">10 + 7/7</div><div class="l">정확성 버그 수정 10건 · 파이프라인 테스트 7건 전부 통과</div></div>
-      <div class="tile"><div class="k pos">±$2.6</div><div class="l">백테스트 엔진의 실거래 재현 오차 (리플레이 −29.9 vs 실제 −27.3)</div></div>
-      <div class="tile"><div class="k neg">1 / 3,600</div><div class="l">현실 비용에서 학습·검증 모두 플러스인 MA 파라미터 조합 수</div></div>
+      <div class="tile"><div class="k pos">P1 완료</div><div class="l">비용 반영 백테스트 환경 구축 + 전략 판정까지 끝남</div></div>
+      <div class="tile"><div class="k warn">3 / 30</div><div class="l">P0 sim 수집 진행률 (threshold slug 수, 07-07 00:43 이후 중단)</div></div>
+      <div class="tile"><div class="k pos">+27.2 / +2.7</div><div class="l">threshold 비용 반영 PnL (전 기간 / 검증셋) — 주력 후보 근거</div></div>
+      <div class="tile"><div class="k neg">1 / 3,600</div><div class="l">MA breakout: 현실 비용에서 학습·검증 동시 플러스 조합 수 — 부적합 근거</div></div>
     </div>
   </header>
+
+  <!-- ===================== 0. 재개 가이드 ===================== -->
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">0 — Resume</span>
+      <h2>지금 뭘 하면 되나: 재개 절차</h2>
+    </div>
+
+    <p>중단 지점이 깔끔해서 이어서 하면 된다. 로그는 append 모드 + <code>run_id</code> 컬럼으로 실행이 구분되므로,
+      sim을 그냥 다시 켜면 기존 데이터 위에 이어서 쌓인다 (덮어쓰기 걱정 없음). slug는 <b>연속으로 모을 필요 없다</b> — 누적 30개(약 7.5시간분)면 충분.</p>
+
+    <ol class="steps">
+      <li>
+        <div class="st-t">threshold sim 재가동 (백그라운드 권장)</div>
+        <div class="st-d">루트(<code>polybots/</code>)에서 실행. 켜두기만 하면 됨. 상태 확인은 <code>logs/trades.csv</code>·<code>snapshots.csv</code>를 run_id로 필터.</div>
+        <pre>python -m core.runner --strategy threshold --mode sim</pre>
+      </li>
+      <li>
+        <div class="st-t">slug 30개 이상 모이면 → 백테스트 재평가</div>
+        <div class="st-d">신규 sim 데이터를 포함해 threshold 판정(+$27.2 / +$2.7)이 유지되는지 확인. 파이프라인 상세는 <code>backtest/README.md</code>.</div>
+        <pre>cd backtest
+python data_prep.py                        # logs/events.csv 포함 데이터 통합
+python engine.py --strategy threshold      # 정밀 리플레이 재평가
+python sweep_threshold.py                  # (선택) 파라미터 스윕 재확인</pre>
+      </li>
+      <li>
+        <div class="st-t">판정 유지되면 → P2 실행 품질 작업으로</div>
+        <div class="st-d">라이브 손실 요인 제거: 매도 스윕 스레드 분리, TP의 스윕 경로화, USDC 잔고 가드 등 (아래 로드맵 참조). <b>P1은 완료 상태이므로 건너뜀.</b></div>
+      </li>
+    </ol>
+
+    <h3 style="margin-top:20px">단계별 현황판</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>단계</th><th>내용</th><th>상태</th><th>비고</th></tr></thead>
+        <tbody>
+          <tr><td><b>리팩토링</b></td><td>3개 프로젝트 → 모노레포 v3.0 (core + strategies), 버그 10건 수정, 테스트 7/7</td><td><span class="chip ok">완료</span></td><td>커밋 <code>07e77db</code></td></tr>
+          <tr><td><b>P0</b> sim 검증·수집</td><td>threshold sim으로 slug 30개+ 축적, 신규 구조 무결성 확인</td><td><span class="chip warn">중단됨</span></td><td>3/30 slug에서 정지 (07-07 00:43). <b>← 지금 여기</b></td></tr>
+          <tr><td><b>P1</b> 백테스트 현실화</td><td>비용 모델 실측 캘리브레이션 + 정밀 리플레이 엔진 + 전략 판정</td><td><span class="chip ok">완료</span></td><td>커밋 <code>14ba4a7</code> · 판정은 아래 상세 기록</td></tr>
+          <tr><td><b>P2</b> 실행 품질</td><td>매도 스윕 스레드 분리 · TP 스윕 경로화 · USDC 잔고 가드</td><td><span class="chip idle">대기</span></td><td>sell_dust 재시도는 리팩토링에 반영됨 (라이브 검증 필요)</td></tr>
+          <tr><td><b>P3</b> 인프라</td><td>HTTP 병렬화/WebSocket · slug 경계 404 폴백 · 서버 상시 가동</td><td><span class="chip idle">대기</span></td><td></td></tr>
+          <tr><td><b>P4</b> 확장 / 라이브</td><td>ETH·SOL·XRP config 추가, Binance ATR 전략 · 라이브 소액 재개</td><td><span class="chip idle">최후순위</span></td><td>재개 기준: sim 30+ 무결 + 백테스트 기대값 플러스 유지 + P2 완료</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="verdict alert" style="margin-top:16px">
+      <div><strong>현재 로그 상태 (07-11 확인)</strong> — <code>logs/</code>에는 07-06~07 실행분만 있음: MA sim 2회(스모크 + rolling 30분, 4왕복 체결)와
+        threshold sim(slug ~3개, 1왕복: 진입→손절 체결 확인). 즉 <b>신규 구조에서 두 전략 모두 진입·청산이 정상 동작하는 것까지는 확인됨</b>,
+        표본만 부족한 상태.</div>
+    </div>
+  </section>
+
+  <!-- ===================== 1. 프로젝트 리마인드 ===================== -->
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">1 — Refresher</span>
+      <h2>이 프로젝트가 뭐였지: 30초 리마인드</h2>
+    </div>
+
+    <p><b>Polymarket의 BTC 15분 Up/Down 마켓</b>(15분마다 새 slug가 열리는 바이너리 마켓)을 자동매매하는 봇.
+      1초 tick으로 호가를 읽고, 전략이 진입/청산 신호를 내면 executor가 주문을 낸다.
+      2026-07-06 리팩토링으로 <b>공유 코어 엔진 + 전략 플러그인</b> 구조가 됐고, 레거시 3개 폴더는 읽기 전용 아카이브다.</p>
+
+    <div class="arrowflow">
+      <div class="nodebox"><div class="nb-t">slug_loop</div><div class="nb-d">1초 tick · 15분 slug 롤링 · 호가 수집 (source)</div></div>
+      <div class="nodebox"><div class="nb-t">strategy</div><div class="nb-d">on_event → intent 결정. 포지션은 account에서 읽기만 (decision)</div></div>
+      <div class="nodebox"><div class="nb-t">executor</div><div class="nb-d">sim/live 주문 집행. 무상태 (execute)</div></div>
+      <div class="nodebox"><div class="nb-t">account</div><div class="nb-d">포지션의 단일 진실(SOT). 체결 결과는 on_trade로 전략에 피드백</div></div>
+      <div class="nodebox"><div class="nb-t">logger / printer</div><div class="nb-d">events·trades·snapshots CSV, append + run_id (sink)</div></div>
+    </div>
+
+    <pre>polybots/
+├── core/          공유 엔진 — adapter(재시도) · slug_loop · executor(sim/live) · account(sim/live)
+│                  logger(append+run_id) · printer · runner(CLI)
+├── strategies/    base(인터페이스) · threshold · ma_breakout     ← 1 전략 = 1 모듈
+├── configs/       threshold.json · ma_breakout.json
+├── backtest/      data_prep · run_grid(병렬) · engine(정밀 리플레이) · sweep_threshold · README
+├── logs/          런타임 CSV (append, run_id로 실행 구분)
+├── CLAUDE.md · SPEC.md · ANALYSIS.md · STATUS.md · REPORT.html(본 문서)
+└── polybots_MA/ · polybots_pre/ · polybots_backtest/   (읽기 전용 아카이브 — 새 작업 금지)
+
+실행:  python -m core.runner --strategy threshold --mode sim     ← sim이 기본값</pre>
+
+    <div class="cols" style="margin-top:14px">
+      <div class="card">
+        <h3><span class="chip crit">안전 규칙</span> 절대 준수</h3>
+        <ul class="tight">
+          <li><code>--mode live</code>는 <b>명시적으로 결정했을 때만</b> — 실제 지갑으로 실주문이 나간다. config로는 live가 켜지지 않고 CLI 플래그만이 결정.</li>
+          <li><code>.env</code>에 지갑 개인키 — 읽기/출력/커밋/전송 금지 (.gitignore 등록됨).</li>
+          <li>전략/executor 수정 후에는 반드시 sim으로 먼저 검증.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="chip info">설계 불변식</span> 수정 시 유지</h3>
+        <ul class="tight">
+          <li>단방향 스트림: source → decision → execute → SOT → sink</li>
+          <li>Account = 포지션 SOT. 전략의 낙관적 포지션 설정 금지.</li>
+          <li>전략 내부 카운터/락은 <code>on_trade(filled)</code> 확인 후에만 갱신.</li>
+          <li>시간 판단은 <code>time_left_sec</code> 기준 (wall-clock <code>ts</code>는 로그용).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 2. 전략 현황판 ===================== -->
+  <section>
+    <div class="sec-head">
+      <span class="eyebrow">2 — Strategies</span>
+      <h2>전략 현황판: 규칙 · 현행 파라미터 · 판정</h2>
+    </div>
+
+    <div class="cols">
+      <div class="card">
+        <h3><span class="chip ok">threshold</span> 주력 후보 — sim 검증 중</h3>
+        <p style="font-size:13.5px; margin-bottom:8px">구 pre 전략. "이미 우세한 쪽이 그대로 끝난다"에 베팅하는 모멘텀 추종.</p>
+        <ul class="tight" style="font-size:13.5px">
+          <li><b>진입</b>: 남은시간 450→80초 창에서 우세측 ask ≥ <code>0.8</code> 매수 (단, 가격이 <code>entry_cap 0.9</code> 초과면 포기)</li>
+          <li><b>손절</b>: 진입가 대비 <code>−0.06</code> 하락 시 market 청산</li>
+          <li><b>익절</b>: <code>0.99</code> limit (← 스윕 결과로 0.98에서 상향한 유일한 변경)</li>
+          <li><b>재진입</b>: slug당 최대 2회, 직전 120초 낙폭이 −0.15보다 나쁘면 재진입 차단(dd 필터)</li>
+          <li><b>강제 청산</b>: 만기 50초 전</li>
+        </ul>
+        <p style="font-size:13px; margin-top:8px" class="sub">비용 반영 백테스트: 전 기간 <b class="sign-pos">+$27.2</b> · 검증셋 <b class="sign-pos">+$2.7</b> · MDD −12.7 · 72조합 스윕에서 현행 파라미터가 2위(1위와 tp만 차이) — 강건한 최적점.</p>
+      </div>
+      <div class="card">
+        <h3><span class="chip crit">ma_breakout</span> 라이브 부적합 판정</h3>
+        <p style="font-size:13.5px; margin-bottom:8px">mid 가격의 MA(300틱) 상향돌파 + 가격 ≤ cap 0.5일 때 매수, MA 하향돌파 시 청산(체결까지 매 tick 재발행), tp 0.98 limit.</p>
+        <ul class="tight" style="font-size:13.5px">
+          <li>무비용 백테스트 +$63.9 → 비용 반영 시 <b class="sign-neg">−$5.2</b>, 검증셋 <b class="sign-neg">−$29.9</b></li>
+          <li>3,600조합 전수 탐색에서 학습·검증 동시 플러스 <b>단 1개</b> (경제성 없음)</li>
+          <li>헤어컷 2센트에 손익이 반전하는 비용 취약 구조 (거래 수가 threshold의 3배)</li>
+        </ul>
+        <p style="font-size:13px; margin-top:8px" class="sub">재검토 조건: 비용 구조 자체를 바꾸는 방향(체결 수 축소, limit 매도)일 때만. 파라미터 튜닝으로는 살아나지 않음이 확인됨.</p>
+      </div>
+    </div>
+
+    <p class="sub" style="margin-top:12px">⚠️ 단서: threshold의 검증셋은 18 slugs(4시간)뿐. +$2.7은 "생존" 신호이지 수익성 확정이 아니다 —
+      그래서 P0(sim 30 slugs 축적 → 재평가)이 지금의 관문이다.</p>
+  </section>
+
+  <!-- ===================================================== -->
+  <!-- ============ 이하: 지난 작업 상세 기록 ============== -->
+  <!-- ===================================================== -->
+  <div class="divider-head">
+    <span class="eyebrow">Archive · 2026-07-06 ~ 07-07</span>
+    <h2>지난 작업 상세 기록 — 분석 → 리팩토링 → 백테스트 현실화 → 판정</h2>
+    <p class="sub" style="margin-top:4px">아래는 하루 세션의 전체 기록. 위 요약의 근거가 전부 여기에 있다.</p>
+  </div>
 
   <!-- ===================== TIMELINE ===================== -->
   <section>
     <div class="sec-head">
       <span class="eyebrow">Timeline</span>
-      <h2>오늘의 작업 흐름</h2>
+      <h2>작업 흐름</h2>
     </div>
     <ul class="timeline">
       <li><div class="t-title">폴더 전수 탐색 + 병렬 코드 분석</div><div class="t-note">polybots_MA / polybots_pre / polybots_backtest — 소스 전 파일, SPEC, config, git 히스토리</div></li>
       <li><div class="t-title">세 프로젝트의 관계 규명</div><div class="t-note">pre→MA는 같은 저장소의 사본(커밋 동일), 백테스트 최적값이 MA config와 일치. src 10개 중 6개 동일</div></li>
       <li class="flag"><div class="t-title">문제점 12건 도출</div><div class="t-note">개인키 노출 위험 · 낙관적 포지션 설정 · 로그 덮어쓰기 · 무음 예외 · 낡은 SPEC 등</div></li>
       <li><div class="t-title">Phase 0 — 안전 조치</div><div class="t-note">.gitignore(.env/logs), 두 저장소 스냅샷 커밋으로 복구 지점 확보</div></li>
-      <li><div class="t-title">bid/ask 라이브 검증</div><div class="t-note">의심됐던 호가 반전 버그 → 오더북 대조 2회, 문제 없음 확정</div></li>
+      <li><div class="t-title">bid/ask 라이브 검증</div><div class="t-note">의심됐던 호가 반전 버그 → 오더북 대조 2회, 문제 없음 확정 (재검증 불필요)</div></li>
       <li><div class="t-title">Phase 1 — 모노레포 v3.0 구축</div><div class="t-note">core/ + strategies/ + configs/ + backtest/, CLAUDE.md · SPEC.md · .claude 설정 신규 작성</div></li>
       <li><div class="t-title">Phase 2 — 정확성 버그 수정 10건</div><div class="t-note">Account=SOT, on_trade 체결 피드백, exit 래치, append 로그+run_id, 재시도/백오프 등</div></li>
       <li><div class="t-title">검증 — 테스트 7건 + 실데이터 sim</div><div class="t-note">구 코드의 버그 시나리오 포함 전부 통과, 두 전략 실데이터 스모크 정상</div></li>
@@ -233,10 +408,10 @@
     </ul>
   </section>
 
-  <!-- ===================== 1. 발견 ===================== -->
+  <!-- ===================== 발견 ===================== -->
   <section>
     <div class="sec-head">
-      <span class="eyebrow">1 — Discovery</span>
+      <span class="eyebrow">A — Discovery</span>
       <h2>폴더 분석: 세 프로젝트의 정체</h2>
     </div>
 
@@ -277,10 +452,10 @@
     </div>
   </section>
 
-  <!-- ===================== 2. 변경 ===================== -->
+  <!-- ===================== 변경 ===================== -->
   <section>
     <div class="sec-head">
-      <span class="eyebrow">2 — Rebuild</span>
+      <span class="eyebrow">B — Rebuild</span>
       <h2>무엇을 바꿨나: Phase 0 → 1 → 2</h2>
     </div>
 
@@ -304,17 +479,6 @@
       </div>
     </div>
 
-    <pre style="margin-top:14px">polybots/
-├── core/          공유 엔진 — adapter(재시도) · slug_loop · executor(sim/live) · account(sim/live)
-│                  logger(append+run_id) · printer · runner(CLI)
-├── strategies/    base(인터페이스) · threshold · ma_breakout     ← 1 전략 = 1 모듈
-├── configs/       threshold.json · ma_breakout.json
-├── backtest/      data_prep · run_grid(병렬) · engine(정밀 리플레이) · sweep_threshold · README
-├── CLAUDE.md · SPEC.md · ANALYSIS.md · STATUS.md · REPORT.html(본 문서)
-└── polybots_MA/ · polybots_pre/ · polybots_backtest/   (읽기 전용 아카이브)
-
-실행:  python -m core.runner --strategy threshold --mode sim</pre>
-
     <h3 style="margin-top:20px"><span class="chip ok">Phase 2</span> 정확성 버그 수정 10건 (신규 코드에 반영)</h3>
     <div class="tbl-wrap">
       <table>
@@ -333,10 +497,10 @@
       실데이터 sim 스모크에서 진입 체결까지 확인.</p>
   </section>
 
-  <!-- ===================== 3. 로그 ===================== -->
+  <!-- ===================== 로그 ===================== -->
   <section>
     <div class="sec-head">
-      <span class="eyebrow">3 — Evidence</span>
+      <span class="eyebrow">C — Evidence</span>
       <h2>로그가 말해준 것: 3/3 실거래 세션</h2>
     </div>
 
@@ -352,10 +516,10 @@
     이것이 "백테스트 현실화" 작업의 출발점.</p>
   </section>
 
-  <!-- ===================== 4. 백테스트 현실화 ===================== -->
+  <!-- ===================== 백테스트 현실화 ===================== -->
   <section>
     <div class="sec-head">
-      <span class="eyebrow">4 — Realistic Backtest</span>
+      <span class="eyebrow">D — Realistic Backtest</span>
       <h2>비용 모델 · 엔진 · 판정</h2>
     </div>
 
@@ -456,10 +620,10 @@
     <p class="sub" style="margin-top:8px">상위권이 전부 현행 파라미터 주변 → 우연이 아닌 강건한 최적점. 유일한 개선 = take_profit 0.98→0.99.</p>
   </section>
 
-  <!-- ===================== 5. 결론 ===================== -->
+  <!-- ===================== 결론 ===================== -->
   <section>
     <div class="sec-head">
-      <span class="eyebrow">5 — Verdict</span>
+      <span class="eyebrow">E — Verdict</span>
       <h2>"기존 모델은 완벽하게 최적화되어 있었나?"</h2>
     </div>
     <div class="cols">
@@ -473,21 +637,22 @@
       </div>
     </div>
     <p style="margin-top:14px" class="sub">단서: 검증셋은 18 slugs(4시간)뿐이다. threshold의 검증 +$2.7은 "생존" 신호이지 "수익성 확정"이 아니다 —
-      그래서 다음 단계가 sim 데이터 축적이다.</p>
+      그래서 다음 단계가 sim 데이터 축적(P0)이다.</p>
   </section>
 
-  <!-- ===================== 6. 다음 ===================== -->
+  <!-- ===================== 로드맵 상세 ===================== -->
   <section>
     <div class="sec-head">
-      <span class="eyebrow">6 — Next</span>
-      <h2>추후 진행 (라이브 연결은 최후순위)</h2>
+      <span class="eyebrow">F — Roadmap</span>
+      <h2>로드맵 상세 (라이브 연결은 최후순위)</h2>
     </div>
     <ol class="tight">
-      <li><b>P0 · sim 검증 (가동 중)</b> — threshold rolling sim으로 slug 30개+ 축적, 신규 구조 무결성 확인. 수집된 events.csv는 자동으로 백테스트 데이터가 된다 (<code>data_prep.py</code>가 통합).</li>
-      <li><b>P1 · 모델 업데이트 사이클 (환경 구축 완료)</b> — 수집 → <code>data_prep</code> → 그리드/스윕 → <code>engine</code> 정밀 검증 → config 반영. 신규 전략은 <code>strategies/</code>에 추가만 하면 엔진이 바로 백테스트 가능.</li>
-      <li><b>P2 · 전략 연구</b> — threshold 개량(진입 시간창·dd 필터 재탐색), MA는 비용 구조를 바꾸는 방향(체결 수 축소, limit 매도)에서만 재검토. SPEC ver5의 Binance ATR 데이터 결합.</li>
-      <li><b>P3 · 실행 품질</b> — 매도 스윕 스레드 분리, TP의 스윕 경로화, USDC 잔고 가드, HTTP 병렬화/WebSocket.</li>
-      <li><b>P4 · (최후) 라이브 재개</b> — 기준: sim 30 slugs+ 무결 + 현실화 백테스트 기대값 플러스 유지 + P3 완료. 소액부터.</li>
+      <li><b>P0 · sim 검증 <span class="chip warn">재개 필요</span></b> — threshold rolling sim으로 slug 30개+ 축적(누적으로 충분, 연속 불필요), 진입/청산/slug 전환/로그 무결성 확인. 수집된 events.csv는 자동으로 백테스트 데이터가 된다 (<code>data_prep.py</code>가 통합).</li>
+      <li><b>P1 · 모델 업데이트 사이클 <span class="chip ok">환경 구축 완료</span></b> — 수집 → <code>data_prep</code> → 그리드/스윕 → <code>engine</code> 정밀 검증 → config 반영. 신규 전략은 <code>strategies/</code>에 추가만 하면 엔진이 바로 백테스트 가능. 신규 데이터 30 slugs+ 확보 시 threshold 재평가가 첫 사이클.</li>
+      <li><b>P2 · 실행 품질</b> — 라이브 손실 요인 제거: 매도 스윕의 메인 루프 블로킹(≤10초) 스레드 분리, exit_tp를 limit 방치가 아닌 스윕 경로로(3/3 세션의 FAK no-match 익절 실패 사례), 주문 전 USDC 실잔고 가드. <code>sell_dust</code> 재시도 정책은 리팩토링에 반영됨 — 라이브 검증만 남음.</li>
+      <li><b>P3 · 인프라</b> — tick당 HTTP 4회 순차 → 병렬화 또는 CLOB WebSocket, slug 경계 404 폴백(로컬 시계 레이스), 서버 상시 가동 + 로그 로테이션.</li>
+      <li><b>P2·P3와 병행 가능 · 전략 연구</b> — threshold 개량(진입 시간창·dd 필터 재탐색), MA는 비용 구조를 바꾸는 방향(체결 수 축소, limit 매도)에서만 재검토, Binance ATR 데이터 결합(SPEC ver5). ETH/SOL/XRP는 config의 slug prefix만 바꾸면 확장 가능.</li>
+      <li><b>P4 · (최후) 라이브 재개</b> — 기준: <b>sim 30 slugs+ 무결</b> + <b>현실화 백테스트 기대값 플러스 유지</b> + <b>P2 실행 품질 완료</b>. 충족 시에도 소액부터.</li>
     </ol>
   </section>
 
@@ -495,10 +660,10 @@
   <footer>
     <div><b>산출물</b> — 코드: <code>core/</code> 9파일 · <code>strategies/</code> 4파일 · <code>backtest/</code> 6파일 |
       문서: <code>SPEC.md</code>(v3.0) · <code>CLAUDE.md</code> · <code>ANALYSIS.md</code> · <code>STATUS.md</code> · <code>backtest/README.md</code> · 본 리포트</div>
-    <div style="margin-top:6px"><b>커밋</b> — 루트: <code>07e77db</code> 모노레포 v3.0 → <code>d1704d2</code> 로그 리뷰/로드맵 → <code>14ba4a7</code> 백테스트 현실화 |
+    <div style="margin-top:6px"><b>커밋</b> — 루트: <code>07e77db</code> 모노레포 v3.0 → <code>d1704d2</code> 로그 리뷰/로드맵 → <code>14ba4a7</code> 백테스트 현실화 → <code>228bd47</code> 리포트 → <code>d21a8a8</code> 세션 종료(재개 지점) |
       레거시 스냅샷: MA <code>d0129ca</code> · pre <code>3c2186c</code></div>
     <div style="margin-top:6px"><b>데이터</b> — 통합 209 slugs / 162,530 quotes (1~2월 189 · 3/3 라이브 18 · 신규 sim 2) · 비용 모델: haircut 0.01 / p_fail 0.2 / dust 0.013</div>
-    <div style="margin-top:10px">2026-07-07 · polybots 모노레포 v3.0 · 생성: Claude Code 세션 (분석–리팩토링–백테스트 전 과정)</div>
+    <div style="margin-top:10px">최초 작성 2026-07-07 (작업 세션 기록) · 갱신 2026-07-11 (진행 현황판 + 재개 가이드 추가) · polybots 모노레포 v3.0 · 생성: Claude Code</div>
   </footer>
 
 </main>
