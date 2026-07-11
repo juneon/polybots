@@ -89,6 +89,31 @@
   .gauge .fill { height:100%; background:var(--accent); border-radius:6px; transition:width .4s; }
 
   .todo { color:var(--muted); font-size:13.5px; padding:24px 6px; text-align:center; }
+
+  /* performance tab */
+  .grp-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+  .grp-head .name { font-weight:700; font-size:16px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; margin-bottom:14px; }
+  .tile { background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:9px 12px 7px; }
+  .tile .k { font-size:17px; font-weight:700; letter-spacing:-.01em; }
+  .tile .k.pos { color:var(--pos); } .tile .k.neg { color:var(--neg); }
+  .tile .l { font-size:11px; color:var(--muted); margin-top:1px; line-height:1.35; }
+  .chart-box { position:relative; background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:10px 12px 6px; margin-bottom:14px; }
+  .chart-box .ct { font-size:12px; font-weight:700; color:var(--muted); margin-bottom:4px; }
+  .chart-box svg { display:block; width:100%; }
+  .chart-tip {
+    position:absolute; pointer-events:none; background:var(--ink); color:var(--bg);
+    font-size:11.5px; padding:3px 9px; border-radius:6px; white-space:nowrap;
+    transform:translate(-50%,-130%); opacity:0; transition:opacity .1s;
+  }
+  table.mini { border-collapse:collapse; width:100%; font-size:12.5px; }
+  table.mini th, table.mini td { text-align:left; padding:5px 9px; border-bottom:1px solid var(--line); }
+  table.mini thead th { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  table.mini tbody tr:last-child td { border-bottom:none; }
+  table.mini td.num, table.mini th.num { text-align:right; font-family:Consolas,"D2Coding",monospace; font-size:12px; }
+  .sign-pos { color:var(--pos); font-weight:600; } .sign-neg { color:var(--neg); font-weight:600; }
+  .subhead { font-size:12px; font-weight:700; color:var(--muted); margin:12px 0 6px; letter-spacing:.04em; }
+  .tbl-scroll { overflow-x:auto; }
   #toast {
     position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
     background:var(--ink); color:var(--bg); font-size:13px; padding:8px 18px; border-radius:8px;
@@ -140,8 +165,12 @@
     </div>
   </div>
 
+  <!-- ===== Performance ===== -->
+  <div id="tab-perf" hidden>
+    <div id="perf-root"><div class="panel"><div class="todo">로딩 중…</div></div></div>
+  </div>
+
   <!-- ===== placeholders ===== -->
-  <div id="tab-perf" hidden><div class="panel"><div class="todo">Performance 탭 — Phase B에서 구현 (전략·run별 실현 PnL, equity curve, 계좌 잔고)</div></div></div>
   <div id="tab-config" hidden><div class="panel"><div class="todo">Config 탭 — Phase C에서 구현 (검증 폼 + 자동 백업 + diff)</div></div></div>
   <div id="tab-backtest" hidden><div class="panel"><div class="todo">Backtest 탭 — Phase D에서 구현 (data_prep / engine / sweep 실행 + 결과 비교)</div></div></div>
 
@@ -161,10 +190,13 @@ function toast(msg) {
 }
 
 /* tabs */
+let activeTab = "control";
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  activeTab = b.dataset.tab;
   document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
   ["control","perf","config","backtest"].forEach(t =>
-    $("#tab-" + t).hidden = (t !== b.dataset.tab));
+    $("#tab-" + t).hidden = (t !== activeTab));
+  if (activeTab === "perf") loadPerf();
 });
 
 async function api(path, opts) {
@@ -271,9 +303,126 @@ async function refresh() {
   }
 }
 
+/* ===== Performance (Phase B) ===== */
+const money = v => (v >= 0 ? "+" : "−") + "$" + Math.abs(v).toFixed(2);
+const signCls = v => v >= 0 ? "pos" : "neg";
+const fmtTs = ts => {
+  const d = new Date(ts * 1000);
+  return `${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+};
+const slugTime = slug => {  // btc-updown-15m-<startTs> -> start time
+  const m = /(\d{10})$/.exec(slug);
+  return m ? fmtTs(+m[1]) : slug;
+};
+
+function tile(val, label, colored) {
+  const cls = colored ? " " + signCls(val) : "";
+  const txt = typeof val === "number" && colored ? money(val) : val;
+  return `<div class="tile"><div class="k${cls}">${txt}</div><div class="l">${label}</div></div>`;
+}
+
+function renderPerf(data) {
+  const root = $("#perf-root");
+  if (!data.groups.length) {
+    root.innerHTML = '<div class="panel"><div class="todo">아직 체결 기록 없음 — sim을 돌리면 여기 수익률이 쌓인다</div></div>';
+    return;
+  }
+  root.innerHTML = data.groups.map((g, i) => {
+    const acct = g.account;
+    return `<div class="panel">
+      <div class="grp-head">
+        <span class="name">${esc(g.strategy)}</span>
+        <span class="chip ${g.mode === "live" ? "live" : "sim"}">${esc(g.mode)}</span>
+      </div>
+      <div class="tiles">
+        ${tile(g.realized_pnl, "실현 PnL (청산 slug)", true)}
+        ${tile(g.today_pnl, "오늘", true)}
+        ${tile(`${g.wins}승 ${g.losses}패`, "slug 승패")}
+        ${tile(g.fills, "체결 수")}
+        ${tile(g.avg_entry != null ? `${g.avg_entry.toFixed(3)}→${(g.avg_exit ?? 0).toFixed(3)}` : "–", "평균 진입→청산가")}
+        ${acct && acct.cash != null ? tile(acct.cash, "sim cash (계좌파일)", true) : ""}
+        ${g.open_slugs ? tile(`${g.unclosed_tokens}tk`, `미청산 (slug ${g.open_slugs}개)`) : ""}
+      </div>
+      <div class="chart-box" id="eq-${i}">
+        <div class="ct">누적 현금흐름 (실현 기준, USD)</div>
+      </div>
+      <div class="subhead">RUN 히스토리</div>
+      <div class="tbl-scroll"><table class="mini">
+        <thead><tr><th>run_id</th><th>기간</th><th class="num">slugs</th><th class="num">체결</th><th class="num">현금 Δ</th></tr></thead>
+        <tbody>${g.runs.map(r => `<tr>
+          <td class="num">${esc(r.run_id)}</td>
+          <td class="num">${fmtTs(r.first_ts)} ~ ${fmtTs(r.last_ts)}</td>
+          <td class="num">${r.slugs}</td><td class="num">${r.fills}</td>
+          <td class="num ${signCls(r.cash_delta)==="pos"?"sign-pos":"sign-neg"}">${money(r.cash_delta)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+      <div class="subhead">SLUG별 결과 (최근 ${g.slug_rows.length}개)</div>
+      <div class="tbl-scroll"><table class="mini">
+        <thead><tr><th>slug 시작</th><th>slug</th><th class="num">PnL</th><th>상태</th></tr></thead>
+        <tbody>${g.slug_rows.map(s => `<tr>
+          <td class="num">${slugTime(s.slug)}</td>
+          <td class="num">${esc(s.slug)}</td>
+          <td class="num ${s.pnl == null ? "" : (s.pnl >= 0 ? "sign-pos" : "sign-neg")}">${s.pnl == null ? "–" : money(s.pnl)}</td>
+          <td>${s.closed ? "청산" : `<span class="chip warn">미청산 ${s.remaining_tokens}tk</span>`}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>
+    </div>`;
+  }).join("");
+  data.groups.forEach((g, i) => drawEquity($("#eq-" + i), g.equity));
+}
+
+function drawEquity(box, pts) {
+  if (!box) return;
+  if (!pts || pts.length < 2) { box.insertAdjacentHTML("beforeend", '<div class="todo" style="padding:12px">체결 2건 이상부터 표시</div>'); return; }
+  const W = Math.max(320, box.clientWidth - 24), H = 170, padL = 8, padR = 52, padT = 10, padB = 20;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x0 = xs[0], x1 = xs[xs.length - 1] || x0 + 1;
+  let yMin = Math.min(0, ...ys), yMax = Math.max(0, ...ys);
+  if (yMax === yMin) yMax = yMin + 1;
+  const yPadding = (yMax - yMin) * 0.08;
+  yMin -= yPadding; yMax += yPadding;
+  const X = t => padL + (W - padL - padR) * (x1 === x0 ? 0.5 : (t - x0) / (x1 - x0));
+  const Y = v => padT + (H - padT - padB) * (1 - (v - yMin) / (yMax - yMin));
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+  const cs = getComputedStyle(document.documentElement);
+  const accent = cs.getPropertyValue("--accent").trim(), muted = cs.getPropertyValue("--muted").trim();
+  const yLbl = v => `<text x="${W - padR + 6}" y="${Y(v) + 4}" font-size="10.5" fill="${muted}" font-family="Consolas,monospace">${v >= 0 ? "" : "−"}$${Math.abs(v).toFixed(1)}</text>`;
+  box.insertAdjacentHTML("beforeend", `
+    <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+      <line x1="${padL}" y1="${Y(0)}" x2="${W - padR}" y2="${Y(0)}" stroke="${muted}" stroke-width="1" stroke-dasharray="3 4" opacity=".6"/>
+      <path d="${line}" fill="none" stroke="${accent}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle class="eqdot" r="4" fill="${accent}" stroke="var(--surface)" stroke-width="2" opacity="0"/>
+      ${yLbl(0)}${ys.some(v => v > 0) ? yLbl(Math.max(...ys)) : ""}${ys.some(v => v < 0) ? yLbl(Math.min(...ys)) : ""}
+      <text x="${padL}" y="${H - 5}" font-size="10.5" fill="${muted}" font-family="Consolas,monospace">${fmtTs(x0)}</text>
+      <text x="${W - padR}" y="${H - 5}" font-size="10.5" fill="${muted}" text-anchor="end" font-family="Consolas,monospace">${fmtTs(x1)}</text>
+      <rect x="0" y="0" width="${W}" height="${H}" fill="transparent"/>
+    </svg>
+    <div class="chart-tip"></div>`);
+  const svg = box.querySelector("svg"), tip = box.querySelector(".chart-tip"), dot = svg.querySelector(".eqdot");
+  svg.addEventListener("mousemove", e => {
+    const r = svg.getBoundingClientRect();
+    const mx = (e.clientX - r.left) * (W / r.width);
+    let best = 0, bd = 1e9;
+    pts.forEach((p, i) => { const d = Math.abs(X(p[0]) - mx); if (d < bd) { bd = d; best = i; } });
+    const p = pts[best];
+    dot.setAttribute("cx", X(p[0])); dot.setAttribute("cy", Y(p[1])); dot.setAttribute("opacity", "1");
+    tip.style.left = (X(p[0]) * r.width / W + 12) + "px";
+    tip.style.top = (Y(p[1]) * r.height / H + 10) + "px";
+    tip.textContent = `${fmtTs(p[0])} · ${money(p[1])}`;
+    tip.style.opacity = "1";
+  });
+  svg.addEventListener("mouseleave", () => { tip.style.opacity = "0"; dot.setAttribute("opacity", "0"); });
+}
+
+async function loadPerf() {
+  try { renderPerf(await api("/api/perf")); }
+  catch (e) { $("#perf-root").innerHTML = `<div class="panel"><div class="todo">로드 실패: ${esc(e.message)}</div></div>`; }
+}
+
 loadStrategies().catch(e => toast("전략 목록 로드 실패: " + e.message));
 refresh();
 setInterval(refresh, 2000);
+setInterval(() => { if (activeTab === "perf") loadPerf(); }, 10000);
 </script>
 </body>
 </html>

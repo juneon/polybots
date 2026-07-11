@@ -28,7 +28,7 @@
   - core: stop-file 체크 + heartbeat 기록 (`core/control.py`), `--run-id` 인자, sim 계좌 전략별 분리
   - ui: `server.py`(FastAPI) + `procman.py`(시작/정지/상태) + `static/index.html`(Control 탭)
   - 기능: 전략 선택, sim 시작/정지, 실행 상태 카드(heartbeat), slug 수집 게이지(n/30), 전체 정지
-- **Phase B — Performance 탭**: `ui/metrics.py` — 전략/run/slug별 실현 PnL, equity curve, 계좌 잔고, run 히스토리
+- **Phase B — Performance 탭** ✅ 완료 (2026-07-11): `ui/metrics.py` — 전략/run/slug별 실현 PnL, equity curve, 계좌 잔고, run 히스토리
 - **Phase C — Config 탭**: 스키마 기반 폼 + 검증 + `configs/backups/` 자동 백업 + diff. `account.*` 잠금
 - **Phase D — Backtest 탭**: `ui/jobs.py` — data_prep/engine/sweep/grid 백그라운드 실행 + 진행률 + 결과 아카이브(`backtest/results/`) 비교
 - **Phase E — live + 마감**: live 시작 3단계 가드(모드 선택→확인 문구 타이핑→config 요약), kill switch 정식화, 로그 뷰어
@@ -77,4 +77,23 @@
 **메모**:
 - sim 정지 시 열린 포지션은 계좌 파일에 남음 — 다음 실행에서 같은 전략이 만기 강제청산으로 자연 해소 (기존 동작과 동일, live는 Phase E에서 flatten 설계)
 - `AGENTS.md`는 IDE가 CLAUDE.md를 자동 미러링한 파일 — 커밋 제외
-- 다음 작업: **Phase B (Performance 탭)** — `ui/metrics.py`에 trades.csv 기반 PnL 집계 추가
+
+### 2026-07-11 (같은 세션) — Phase B 완료: Performance 탭
+
+**추가 결정**:
+
+| # | 결정 | 이유 |
+|---|---|---|
+| D9 | PnL 집계는 **(전략, 모드) 단위로 분리** — sim과 live 성과를 절대 합산하지 않음 | run_id 접미사(_sim/_live)로 구분. live 재개 시 sim 수치와 섞이면 판단 오염 |
+| D10 | "실현 PnL"의 정의 = **청산 완료 slug**(잔량 ≤ dust 0.011tk)의 (매도대금 − 매수비용) 합. 미청산 slug는 합계에서 제외하고 별도 표시 | 부분 데이터로 수익률이 왜곡되지 않게. 만기 정산(0/1)은 기록에 없으므로 추정하지 않음 |
+| D11 | equity curve는 **체결 기준 누적 현금흐름** (매수 −, 매도 +) | account.cash와 정의가 일치, 보유 중 낙폭도 보임. 미실현 평가손익은 스냅샷 기반이라 Phase B 범위 밖 |
+| D12 | trades.csv는 작으므로(체결만 기록) 전체 재파싱 + mtime/size 캐시. events.csv 증분 방식(D8)과 구분 | 단순함 우선. equity는 500포인트 초과 시 다운샘플 |
+
+**구현**:
+- `ui/metrics.py` + `PerfReport` — (전략,모드)별: 실현 PnL/오늘/slug 승패/체결 수/평균 진입→청산가/미청산 잔량, run 히스토리(최근 20), slug별 결과(최근 30), equity 시계열, sim 계좌 파일(cash/position) 첨부
+- `ui/server.py` + `GET /api/perf`
+- `index.html` Performance 탭 — 그룹별 스탯 타일 + equity 라인차트(인라인 SVG, hover 툴팁+마커, $0 기준선, 라이트/다크 대비 3:1 검증 통과) + run/slug 테이블(차트의 데이터 테이블 뷰 겸용). 탭 활성 시 로드, 10초 갱신
+
+**검증**: `/api/perf`가 기존 실데이터를 정확 집계 — ma_breakout sim 실현 −$2.40(2 slug 청산, 12체결), threshold sim −$0.80(1청산) + 오늘 스모크의 미청산 slug 1개(10tk)를 정확히 분리 감지. 프런트 JS는 node --check 통과, 페이지 200 OK.
+
+**다음 작업**: **Phase C (Config 탭)** — 스키마 기반 폼 + 검증 + 백업/diff + account 잠금

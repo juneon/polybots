@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from strategies import REGISTRY
 from .procman import ProcManager
-from .metrics import SlugCollection
+from .metrics import SlugCollection, PerfReport
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).resolve().parent / "static"
@@ -31,6 +31,7 @@ COLLECTION_TARGET = 30  # P0 goal: slugs to collect before re-running the backte
 app = FastAPI(title="polybots control", docs_url=None, redoc_url=None)
 procman = ProcManager()
 collection = SlugCollection()
+perf = PerfReport()
 
 
 class BotReq(BaseModel):
@@ -62,6 +63,11 @@ def status():
             "slugs": collection.counts(),
         },
     }
+
+
+@app.get("/api/perf")
+def perf_report():
+    return perf.report()
 
 
 @app.post("/api/bot/start")
