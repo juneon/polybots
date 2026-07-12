@@ -27,5 +27,7 @@
 | `STATUS.md` | 2026-07-07 로그 리뷰 + P0~P4 로드맵 | **로드맵·3/3 라이브 세션 요약은 WORKLOG "로드맵" 섹션으로 흡수.** 원문은 git 이력 |
 | `REPORT.html` | 2026-07-11 진행 현황 리포트(프레젠테이션판) | git 이력. 필요해지면 그 시점 최신 상태로 새로 생성 |
 | `AGENTS.md` | IDE가 CLAUDE.md를 자동 복제한 미러 | gitignore 처리 — 다시 생겨도 무시하고 커밋하지 않는다 |
-| `polybots_pre/backup/` 19개 (SPEC v0.1~v2.0 초안, 구 AGENTS/REVIEW/CONTRACT) | 리팩토링 이전 명세 초안들 | polybots_pre 레거시 git에 스냅샷(`5a84048`) 후 디스크에서 삭제 |
-| `polybots_MA/SPECv2.1.md` · `polybots_pre/SPECv2.1.md` | v3.0 이전 명세 (동일 파일 2부, MA쪽은 내용도 threshold를 설명하는 오류 문서) | 각 레거시 git에 tracked — 레거시 폴더째 정리(구조 감사 #7, P0 완료 후)와 함께 처분 |
+| `polybots_pre/backup/` 19개 (SPEC v0.1~v2.0 초안, 구 AGENTS/REVIEW/CONTRACT) | 리팩토링 이전 명세 초안들 | pre 레거시 git에 스냅샷(`5a84048`) 후 디스크에서 삭제 |
+| `SPECv2.1.md` 2부 (구 MA/pre — 동일 파일, MA쪽은 내용도 threshold를 설명하는 오류 문서) | v3.0 이전 명세 | `archive/polybots_MA/`·`archive/polybots_pre/`에 잔존(각자 git tracked) — 아카이브 최종 처분(구조 감사 #7, P0 완료 후) 때 함께 |
+
+> 레거시 3폴더는 2026-07-12에 `archive/` 하위로 이동 (루트 git에서는 gitignore).

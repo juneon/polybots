@@ -47,7 +47,7 @@ class JobError(Exception):
 
 def data_status() -> Dict[str, Any]:
     """data_prep output presence/freshness — precondition for engine/sweep/grid."""
-    sources = [ROOT / "logs" / "events.csv", ROOT / "polybots_MA" / "logs" / "events.csv"]
+    sources = [ROOT / "logs" / "events.csv", ROOT / "archive" / "polybots_MA" / "logs" / "events.csv"]
     sources += [Path(p) for p in glob.glob(str(BACKTEST / "data" / "*_events.csv"))]
     newest_src = max((p.stat().st_mtime for p in sources if p.exists()), default=None)
 

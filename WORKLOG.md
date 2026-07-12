@@ -57,8 +57,8 @@
   - [ ] exit_tp도 스윕 경로로 (3/3에서 FAK no-match로 익절 실패 1건)
   - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
-- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 로그 로테이션, 패키징(구조 감사 #8)
-- **P4 — 확장**: ETH/SOL/XRP(config slug prefix만 교체) · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 레거시 3폴더 정리(구조 감사 #7)
+- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거)
+- **P4 — 확장**: ETH/SOL/XRP·5분/1시간 마켓 (config slug prefix/interval 교체) — **선행: 봇 정체성을 "전략"→"전략@마켓"으로** (config 파일명·sim 계좌 파일·procman 키·run_id·metrics 집계 5곳이 전략 단위라 같은 전략 2마켓 동시 실행 시 충돌, 2026-07-12 심층 리뷰) · train/val 소스명 하드코딩 정리 · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 아카이브 최종 처분(구조 감사 #7)
 - **live 재개 기준 (불변)**: sim slug 30+ 무결 + 현실화 백테스트 기대값 플러스 + P2 완료 → 소액부터. UI로는 Phase E의 3단계 가드 경유
 
 ### 참고 — 2026-03-03 라이브 세션 (P2의 근거, 구 STATUS §1 요약)

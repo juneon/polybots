@@ -19,9 +19,7 @@ backtest/results/
 backtest/data/
 
 # legacy checkouts (own git repos, kept as archive)
-polybots_MA/
-polybots_pre/
-polybots_backtest/
+archive/
 
 # local-only claude settings
 .claude/settings.local.json

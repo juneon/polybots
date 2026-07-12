@@ -46,6 +46,7 @@ polybots/
 ├─ logs/                      런타임 산출물 (gitignore): events/trades/snapshots.csv (append+run_id)
 │   └─ ctl/                       heartbeat(*.status.json) · stop-file · 봇/job stdout 로그
 ├─ state/                     sim 계좌 등 런타임 상태 파일 (gitignore, 구 루트 파일은 시작 시 자동 이관)
+├─ archive/                   리팩토링 이전 레거시 3폴더 (읽기 전용, 각자 git — 새 작업 금지)
 └─ 문서 5개                    CLAUDE(규칙) SPEC(본 문서) WORKLOG(결정·로드맵) DOCS(문서 맵) backtest/README(절차)
 ```
 

@@ -16,7 +16,7 @@ SPEC.md       아키텍처/스키마/전략 규칙 명세 (수정 시 함께 갱
 WORKLOG.md    결정·진행·로드맵의 단일 기록처 — 세션 재개는 여기부터
 DOCS.md       문서 맵 — 문서는 5개가 전부. 새 .md 만들기 전에 볼 것
 
-polybots_MA/, polybots_pre/, polybots_backtest/   ← 리팩토링 이전 레거시 (읽기 전용 아카이브)
+archive/      리팩토링 이전 레거시 3폴더 (읽기 전용, 각자 git) — 새 작업 금지
 ```
 
 ## 실행

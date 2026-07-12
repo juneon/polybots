@@ -2,9 +2,9 @@
 """Normalize all recorded events.csv sources into one quotes table (parquet).
 
 Sources (old format: type,slug,tick,ts,data / new format adds run_id):
-  - backtest/data/*_events.csv          (Jan-Feb grid-search collection, 7 days)
-  - polybots_MA/logs/events.csv         (2026-03-03 live session)
-  - logs/events.csv                     (new monorepo sim runs)
+  - backtest/data/*_events.csv           (Jan-Feb grid-search collection, 7 days)
+  - archive/polybots_MA/logs/events.csv  (2026-03-03 live session)
+  - logs/events.csv                      (new monorepo sim runs)
 
 Output: backtest/data/quotes_all.parquet
   columns: source, slug, tick, ts, time_left_sec, up_bid, up_ask, down_bid, down_ask
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 SOURCES = [
     ("grid_jan_feb", str(Path(__file__).parent / "data" / "*_events.csv")),
-    ("live_mar03", str(ROOT / "polybots_MA" / "logs" / "events.csv")),
+    ("live_mar03", str(ROOT / "archive" / "polybots_MA" / "logs" / "events.csv")),
     ("sim_new", str(ROOT / "logs" / "events.csv")),
 ]
 
@@ -52,8 +52,10 @@ def load_events_file(fp: str, source: str) -> list:
                 "source": source,
                 "slug": d["slug"],
                 "tick": tick,
-                # monotonic time axis: slug start + elapsed (+tick epsilon for stable ordering)
-                "ts": slug_start + (900 - tleft) + tick * 1e-3,
+                # monotonic time axis, interval-agnostic (works for 5m/15m/1h markets):
+                # consumers only use within-slug deltas (cooldown) and ordering,
+                # so anchoring on slug_start - time_left needs no interval constant
+                "ts": slug_start - tleft + tick * 1e-3,
                 "time_left_sec": tleft,
                 "up_bid": float(up["bid"]),
                 "up_ask": float(up["ask"]),
