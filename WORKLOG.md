@@ -210,7 +210,7 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 | # | 항목 | 내용 | 노력 | 시점 |
 |---|---|---|---|---|
 | 1 | **backtest 전략 로직 이중화 제거** ✅ 완료 (2026-07-12) | `backtest.py`(무비용 구버전)와 `run_grid.py`가 MA 로직을 재구현 — 파일 주석 스스로 "전략 바뀌면 sync 필요" 인정. engine.py 방식(실전략 리플레이)으로 통일: engine의 리플레이 코어를 함수로 추출 → run_grid는 그걸 프로세스풀로 fan-out, backtest.py는 폐기 | 중 | **Phase D 착수 전** |
-| 2 | **tests/ 신설** | 리팩토링 때의 7개 파이프라인 테스트가 커밋 안 된 일회성이었음. tests/로 영구화: 거부매수 재시도·exit 래치·logger append·PerfReport 집계·configstore 검증 | 중 | Phase D 착수 전 |
+| 2 | **tests/ 신설** ✅ 완료 (2026-07-12) | 리팩토링 때의 7개 파이프라인 테스트가 커밋 안 된 일회성이었음. tests/로 영구화: 거부매수 재시도·exit 래치·logger append·PerfReport 집계·configstore 검증 | 중 | Phase D 착수 전 |
 | 3 | config 검증 위치 이동 | 검증 규칙이 ui/configstore.py에만 있음 → core/config_schema.py로 옮겨 **runner 시작 시에도 검증** (지금은 잘못된 config로도 봇이 뜸). UI는 그걸 import | 소 | 아무 때나 |
 | 4 | 런타임 상태 파일 정리 | sim_account_*.json이 루트에 산재 → `state/` 디렉토리로. backtest 결과 CSV(grid_results*.csv 등)도 `backtest/results/`로 | 소 | Phase D에서 자연 해결 |
 | 5 | 로그 스키마 상수화 | CSV 컬럼명이 core/logger·ui/metrics·backtest에 문자열로 중복 — logger가 스키마 상수를 노출하고 나머지가 import | 소 | 아무 때나 |
@@ -242,3 +242,20 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - 성능: exact-replay ~1.1s/콤보 → 풀 그리드 3600콤보 ≈ 10워커 13분 (구 벡터화 15분과 대등)
 
 **의미**: 이제 백테스트 경로가 `engine.replay` 하나 — 전략 코드가 바뀌면 그리드/스윕이 자동 추종. 단, 구 `grid_results_realistic.csv`(상대 tp/sl 축)와 새 그리드 결과는 축이 달라 직접 비교 불가 — 다음 풀 그리드 실행 시 새 기준으로 갱신할 것.
+
+### 2026-07-12 (같은 세션) — 구조 개선 #2 완료: tests/ 신설
+
+**구성** (49 tests, ~4초, `python -m pytest tests/ -q`):
+
+| 파일 | 커버 |
+|---|---|
+| `test_threshold_strategy.py` | 진입 윈도/favorite 선택 · **거부매수 재시도(슬롯 미소모)** · submitted 보수적 슬롯 소모 · SL 후 재진입 · TP 슬럭 잠금 · 레벨트리거 exit 재발화 · 거부 exit 무변이 · max_entries · slug 리셋 |
+| `test_ma_breakout_strategy.py` | cap 하 cross-up 진입 · **exit_armed 래치(체결까지 재발사, 체결 시 해제)** · tp_abs 우선순위 · buy_inflight 스태킹 차단+거부 후 재시도 · slug 변경 시 상태 폐기 |
+| `test_account_sim.py` | SOT 불변식 — filled만 변이 · 부분 청산 잔량 · dust 청산 · 반대편 exit 무시 · 디스크 왕복 |
+| `test_logger.py` | **append 모드(헤더 1회, run_id로 run 구분)** · intent+trade 1행 페어링 · 비활성 sink 무출력 |
+| `test_perf_report.py` | run_id 파싱(전략명 '_' 포함) · **(전략,모드) 분리(D9)** · 실현 PnL=청산 slug만(D10) · dust=청산 취급 · equity 누적 현금흐름(D11) · mtime/size 캐시 무효화 |
+| `test_configstore.py` | 저장+백업+diff · no-op 무기록 · 같은 초 백업 충돌 회피 · **거부 12종 파라미터라이즈**(잠금/미존재/타입/enum/범위/양수/null/정수) |
+| `test_engine.py` | 비용 모델(매수 intent가, 매도 bid−haircut 전량 스윕, p_fail 거부) · ReplayAccount dust · 리플레이 결정성(seed 고정, parquet 없으면 skip) |
+
+- `requirements.txt`에 pytest 추가, CLAUDE.md에 구조/테스트 규칙 반영
+- 다음: **Phase D (Backtest 탭)** — 선행 조건 2개 모두 충족됨

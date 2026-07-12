@@ -12,3 +12,6 @@ python-dotenv
 # control UI (ui/server.py)
 fastapi
 uvicorn
+
+# tests (tests/)
+pytest

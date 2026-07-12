@@ -8,7 +8,8 @@ Polymarket BTC 15분 Up/Down 마켓 자동매매 봇. 공유 코어 엔진(`core
 core/         공유 엔진 — adapter, slug_loop, executor(sim/live), account(sim/live), logger, printer, runner
 strategies/   전략 플러그인 — 1 전략 = 1 모듈. base.py의 BaseStrategy 인터페이스 구현
 configs/      전략별 설정 — configs/<전략이름>.json
-backtest/     그리드 서치 백테스트 (data/*_events.csv 입력)
+backtest/     백테스트 — engine.py(실전략 리플레이)가 유일한 엔진, 그리드/스윕은 그 fan-out
+tests/        pytest 단위 테스트 — 전략/계좌/로거/집계/설정 검증 (python -m pytest tests/)
 logs/         런타임 CSV 로그 (append 모드, run_id 컬럼으로 실행 구분)
 SPEC.md       아키텍처/스키마/전략 규칙 명세 (수정 시 함께 갱신할 것)
 
@@ -51,4 +52,8 @@ python -m core.runner --strategy ma_breakout --mode live    # 실거래 ⚠️
 
 ## 의존성
 
-`requests`, `numpy`, `pandas` (backtest), live 모드 추가: `py_clob_client`, `python-dotenv`
+`requests`, `numpy`, `pandas` (backtest), live 모드 추가: `py_clob_client`, `python-dotenv`, 테스트: `pytest`
+
+## 테스트
+
+전략 로직/executor/account/ui 집계 수정 후에는 `python -m pytest tests/ -q` (루트에서, 5초 이내). 새 전략을 추가하면 tests/에 전략 테스트도 추가할 것.
