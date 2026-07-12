@@ -134,6 +134,9 @@
     padding:8px 12px; font-size:12.5px; margin-bottom:12px;
   }
   pre.lock { font-size:11.5px; opacity:.8; margin-top:4px; background:var(--code-bg); border:1px solid var(--line); border-radius:8px; padding:10px 12px; overflow-x:auto; }
+  #bt-log { max-height:320px; overflow:auto; white-space:pre-wrap; margin-top:12px; }
+  .chip.done { color:var(--accent); background:var(--accent-soft); }
+  .chip.fail { color:var(--neg); background:color-mix(in srgb,var(--neg) 12%,transparent); }
   #toast {
     position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
     background:var(--ink); color:var(--bg); font-size:13px; padding:8px 18px; border-radius:8px;
@@ -209,8 +212,48 @@
     </div>
   </div>
 
-  <!-- ===== placeholders ===== -->
-  <div id="tab-backtest" hidden><div class="panel"><div class="todo">Backtest 탭 — Phase D에서 구현 (data_prep / engine / sweep 실행 + 결과 비교)</div></div></div>
+  <!-- ===== Backtest (Phase D) ===== -->
+  <div id="tab-backtest" hidden>
+    <div class="panel">
+      <h2>백테스트 실행 — 수집 → 재평가 → config 반영</h2>
+      <div class="banner" id="bt-stale" hidden>⚠ 이벤트 로그가 parquet보다 최신 — <b>data_prep</b>을 먼저 돌리면 최신 수집분까지 반영된다.</div>
+      <div class="startrow">
+        <select id="bt-kind" onchange="btKindChanged()">
+          <option value="data_prep">data_prep — 로그 → parquet 통합</option>
+          <option value="engine" selected>engine — 정밀 리플레이</option>
+          <option value="sweep_threshold">sweep_threshold — threshold 스윕</option>
+          <option value="run_grid">run_grid — ma_breakout 그리드</option>
+        </select>
+        <select id="bt-strategy"></select>
+        <label class="hint" id="bt-cost1">haircut <input type="number" id="bt-haircut" value="0.01" step="0.005" min="0" style="width:74px"></label>
+        <label class="hint" id="bt-cost2">p_fail <input type="number" id="bt-pfail" value="0.2" step="0.05" min="0" max="1" style="width:74px"></label>
+        <label class="hint" id="bt-quick-wrap" hidden><input type="checkbox" id="bt-quick" checked> quick (16콤보 스모크)</label>
+        <button class="primary" id="bt-run" onclick="btRun()">▶ 실행</button>
+      </div>
+      <div class="hint" id="bt-data" style="margin-top:8px"></div>
+      <div class="hint" id="bt-desc" style="margin-top:2px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Jobs — 동시 1개 실행 (grid는 자체 병렬이라 겹치면 안 됨)</h2>
+      <div class="tbl-scroll"><table class="mini">
+        <thead><tr><th>job</th><th>종류</th><th>상태</th><th class="num">소요</th><th>결과</th><th></th></tr></thead>
+        <tbody id="bt-jobs"></tbody>
+      </table></div>
+      <div class="empty" id="bt-jobs-empty">아직 실행한 job 없음</div>
+      <pre class="lock" id="bt-log" hidden></pre>
+    </div>
+
+    <div class="panel">
+      <h2>결과 아카이브 (backtest/results/) — 체크로 비교</h2>
+      <div class="tbl-scroll"><table class="mini">
+        <thead><tr><th></th><th>시각</th><th>종류</th><th>핵심 지표</th><th></th></tr></thead>
+        <tbody id="bt-results"></tbody>
+      </table></div>
+      <div class="empty" id="bt-results-empty">아카이브된 결과 없음 — 위에서 engine/sweep/grid를 실행하면 쌓인다</div>
+      <div id="bt-compare" style="margin-top:12px"></div>
+    </div>
+  </div>
 
   <div id="toast"></div>
 </main>
@@ -236,6 +279,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
     $("#tab-" + t).hidden = (t !== activeTab));
   if (activeTab === "perf") loadPerf();
   if (activeTab === "config" && !cfgData) loadConfig();
+  if (activeTab === "backtest") { btRefresh(); btLoadResults(); }
 });
 
 async function api(path, opts) {
@@ -252,6 +296,7 @@ async function loadStrategies() {
   ).join("");
   $("#sel-strategy").innerHTML = opts;
   $("#cfg-strategy").innerHTML = opts;
+  $("#bt-strategy").innerHTML = opts;
 }
 
 async function startBot() {
@@ -571,10 +616,215 @@ async function saveConfig() {
   } catch (e) { toast("저장 실패: " + e.message); }
 }
 
+/* ===== Backtest (Phase D) ===== */
+const BT_DESC = {
+  data_prep: "모든 이벤트 로그(수집분 포함)를 data/quotes_all.parquet 하나로 정규화한다. 수집 후 재평가 전에 필수.",
+  engine: "실제 strategies/ 코드를 비용 모델(haircut·p_fail)로 리플레이 — 판단 기준이 되는 수치.",
+  sweep_threshold: "threshold 파라미터 72콤보 스윕 (engine 기반, ~2분).",
+  run_grid: "ma_breakout 3,600콤보 그리드 (engine fan-out, 풀 그리드 ~10분+). quick은 16콤보 스모크.",
+};
+let btSelectedJob = null;
+let btJobStates = {};   // job_id -> state (done 전환 감지용)
+let btResults = [];
+let btChecked = new Set();
+
+function btKindChanged() {
+  const k = $("#bt-kind").value;
+  $("#bt-strategy").hidden = k !== "engine";
+  $("#bt-quick-wrap").hidden = k !== "run_grid";
+  $("#bt-cost1").hidden = $("#bt-cost2").hidden = (k === "data_prep");
+  $("#bt-desc").textContent = BT_DESC[k] || "";
+}
+
+async function btRun() {
+  const kind = $("#bt-kind").value;
+  const body = {kind, strategy: $("#bt-strategy").value || null, params: {}};
+  if (kind !== "data_prep") {
+    body.params.haircut = Number($("#bt-haircut").value);
+    body.params.pfail = Number($("#bt-pfail").value);
+  }
+  if (kind === "run_grid") {
+    body.params.quick = $("#bt-quick").checked;
+    if (!body.params.quick && !confirm("풀 그리드는 3,600콤보 — CPU를 수 분간 점유한다. 실행할까?")) return;
+  }
+  try {
+    const j = await api("/api/backtest/run", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+    });
+    toast(`job 등록됨: ${j.id}`);
+    btSelectedJob = j.id;
+  } catch (e) { toast("실행 실패: " + e.message); }
+  btRefresh();
+}
+
+const btElapsed = j => {
+  const end = j.ended_ts || Math.floor(Date.now() / 1000);
+  return j.started_ts ? fmtUp(end - j.started_ts) : "–";
+};
+const BT_CHIP = {queued: "warn", running: "run", done: "done", failed: "fail", cancelled: "off"};
+
+function btRenderJobs(jobs) {
+  $("#bt-jobs-empty").hidden = jobs.length > 0;
+  $("#bt-jobs").innerHTML = jobs.map(j => `<tr>
+    <td class="num">${esc(j.id)}</td>
+    <td>${esc(j.kind)}${j.strategy ? ` <span class="hint">${esc(j.strategy)}</span>` : ""}${j.data_stale ? ' <span class="chip warn" title="parquet이 이벤트 로그보다 오래됨">stale data</span>' : ""}</td>
+    <td><span class="chip ${BT_CHIP[j.state] || "off"}">${esc(j.state)}</span>${j.error ? ` <span class="hint" title="${esc(j.error)}">⚠</span>` : ""}</td>
+    <td class="num">${btElapsed(j)}</td>
+    <td class="num">${esc(j.result_file || "–")}</td>
+    <td>
+      <button onclick="btShowLog('${esc(j.id)}')">로그</button>
+      ${(j.state === "queued" || j.state === "running") ? `<button class="danger" onclick="btCancel('${esc(j.id)}')">취소</button>` : ""}
+    </td>
+  </tr>`).join("");
+}
+
+async function btShowLog(id) {
+  btSelectedJob = (btSelectedJob === id) ? null : id;   // 토글
+  if (!btSelectedJob) { $("#bt-log").hidden = true; return; }
+  await btPollLog();
+}
+
+async function btPollLog() {
+  if (!btSelectedJob) return;
+  try {
+    const j = await api("/api/backtest/jobs/" + btSelectedJob);
+    const box = $("#bt-log");
+    const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 8;
+    box.hidden = false;
+    box.textContent = `[${j.id} · ${j.state}]\n` + (j.log_tail || "(로그 없음)");
+    if (stick) box.scrollTop = box.scrollHeight;
+  } catch (e) { /* job 목록에서 사라졌으면 무시 */ }
+}
+
+async function btCancel(id) {
+  try { await api(`/api/backtest/jobs/${id}/cancel`, {method: "POST"}); toast("취소 요청됨"); }
+  catch (e) { toast("취소 실패: " + e.message); }
+  btRefresh();
+}
+
+async function btRefresh() {
+  try {
+    const r = await api("/api/backtest/jobs");
+    btRenderJobs(r.jobs || []);
+    const d = r.data || {};
+    $("#bt-stale").hidden = !d.stale;
+    $("#bt-data").textContent = d.parquet_exists
+      ? `quotes_all.parquet: ${fmtTs(d.parquet_mtime)} 생성${d.stale ? " (이벤트 로그보다 오래됨)" : " (최신)"}`
+      : "quotes_all.parquet 없음 — data_prep을 먼저 실행해야 engine/sweep/grid 가능";
+    // running/queued job이 있으면 로그 갱신, done 전환 시 결과 새로고침
+    let anyActive = false, newlyDone = false;
+    (r.jobs || []).forEach(j => {
+      if (j.state === "running" || j.state === "queued") anyActive = true;
+      if (btJobStates[j.id] && btJobStates[j.id] !== j.state && j.state === "done") newlyDone = true;
+      btJobStates[j.id] = j.state;
+    });
+    if (btSelectedJob && anyActive) btPollLog();
+    if (newlyDone) { btLoadResults(); toast("job 완료 — 결과 아카이브 갱신됨"); }
+  } catch (e) { /* 상단 conn 표시가 이미 끊김을 알림 */ }
+}
+
+function btNum(v, d = 2) { return typeof v === "number" ? v.toFixed(d) : (v ?? "–"); }
+
+function btHeadline(d) {
+  if (d.kind === "engine")
+    return `PnL <b>${btNum(d.total_pnl)}</b> · MDD ${btNum(d.mdd)} · score ${btNum(d.score)} · W/L ${d.wins}/${d.losses} · ${d.fills}체결` +
+           ((d.overrides || []).length ? ` · set ${esc(d.overrides.join(" "))}` : "");
+  const b = (d.top || [])[0] || {};
+  if (d.kind === "grid")
+    return `1위 train_score <b>${btNum(b.train_score)}</b> / val ${btNum(b.val_pnl)} — cap ${b.cap} · ma ${b.ma_len} · tc ${b.tick_confirm} · tp ${b.tp_abs} · cd ${b.cooldown_sec} · ban ${b.no_entry_last_sec}` +
+           (d.old_optimum ? ` (구최적 rank ${d.old_optimum.rank}/${d.combos})` : "");
+  if (d.kind === "sweep")
+    return `1위 score <b>${btNum(b.score)}</b> / pnl ${btNum(b.pnl)} — enter ${b.enter_1} · sl ${b.stop_drop} · tp ${b.take_profit} · cap ${b.entry_cap}` +
+           (d.current_config ? ` (현 config rank ${d.current_config.rank}/${d.combos})` : "");
+  return "";
+}
+
+function btMetrics(d) {
+  const c = d.cost_model || {};
+  const rows = [["종류", `${d.kind} (${d.strategy || "–"})`], ["haircut / p_fail", `${c.haircut} / ${c.p_fail}`]];
+  if (d.kind === "engine")
+    return rows.concat([["PnL", btNum(d.total_pnl)], ["MDD", btNum(d.mdd)], ["score", btNum(d.score)],
+      ["slug W/L", `${d.wins}/${d.losses}`], ["체결", d.fills], ["per source", esc(JSON.stringify(d.per_source))]]);
+  const b = (d.top || [])[0] || {};
+  if (d.kind === "grid")
+    return rows.concat([["1위 train_score", btNum(b.train_score)], ["1위 train_pnl", btNum(b.train_pnl)],
+      ["1위 val_pnl", btNum(b.val_pnl)], ["1위 파라미터", `cap${b.cap} ma${b.ma_len} tc${b.tick_confirm} tp${b.tp_abs} cd${b.cooldown_sec} ban${b.no_entry_last_sec}`],
+      ["구최적 rank", d.old_optimum ? `${d.old_optimum.rank}/${d.combos}` : "–"]]);
+  if (d.kind === "sweep")
+    return rows.concat([["1위 score", btNum(b.score)], ["1위 pnl", btNum(b.pnl)],
+      ["1위 파라미터", `enter${b.enter_1} sl${b.stop_drop} tp${b.take_profit} cap${b.entry_cap}`],
+      ["1위 W/L", `${b.W}/${b.L}`], ["현 config rank", d.current_config ? `${d.current_config.rank}/${d.combos}` : "–"]]);
+  return rows;
+}
+
+function btRenderResults() {
+  $("#bt-results-empty").hidden = btResults.length > 0;
+  $("#bt-results").innerHTML = btResults.map(r => `<tr>
+    <td><input type="checkbox" ${btChecked.has(r.file) ? "checked" : ""} onchange="btToggleCompare('${esc(r.file)}', this.checked)"></td>
+    <td class="num">${fmtTs(r.mtime)}</td>
+    <td>${esc(r.kind)} <span class="hint">${esc(r.strategy || "")}</span></td>
+    <td>${btHeadline(r.data)}</td>
+    <td>${(r.kind === "grid" || r.kind === "sweep") ? `<button onclick="btApplyBest('${esc(r.file)}')">1위 → config</button>` : ""}</td>
+  </tr>`).join("");
+  btRenderCompare();
+}
+
+function btToggleCompare(file, on) {
+  if (on) btChecked.add(file); else btChecked.delete(file);
+  btRenderCompare();
+}
+
+function btRenderCompare() {
+  const sel = btResults.filter(r => btChecked.has(r.file));
+  const box = $("#bt-compare");
+  if (sel.length < 2) { box.innerHTML = sel.length === 1 ? '<div class="hint">비교하려면 2개 이상 체크</div>' : ""; return; }
+  const cols = sel.map(r => ({file: r.file, ts: fmtTs(r.mtime), m: new Map(btMetrics(r.data))}));
+  const labels = [...new Set(cols.flatMap(c => [...c.m.keys()]))];
+  box.innerHTML = `<div class="subhead">나란히 비교 (${sel.length}개)</div>
+    <div class="tbl-scroll"><table class="mini">
+      <thead><tr><th></th>${cols.map(c => `<th>${esc(c.ts)}</th>`).join("")}</tr></thead>
+      <tbody>${labels.map(l => `<tr><td>${esc(l)}</td>${cols.map(c => `<td class="num">${c.m.get(l) ?? "–"}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table></div>`;
+}
+
+function btApplyBest(file) {
+  const r = btResults.find(x => x.file === file);
+  if (!r) return;
+  const d = r.data, b = (d.top || [])[0];
+  if (!b) { toast("결과에 1위 행이 없음"); return; }
+  const nn = v => v === "none" ? null : v;
+  let target, changes;
+  if (d.kind === "grid") {
+    target = "ma_breakout";
+    changes = {"strategy.cap": b.cap, "strategy.ma_len": b.ma_len, "strategy.tick_confirm": b.tick_confirm,
+               "strategy.tp_abs": nn(b.tp_abs), "strategy.cooldown_sec": b.cooldown_sec,
+               "strategy.no_entry_last_sec": nn(b.no_entry_last_sec)};
+  } else if (d.kind === "sweep") {
+    target = "threshold";
+    changes = {"strategy.enter_price_1": b.enter_1, "strategy.enter_price_re": b.enter_1,
+               "strategy.stop_drop": b.stop_drop, "strategy.take_profit": b.take_profit,
+               "strategy.entry_cap": b.entry_cap};
+  } else return;
+  const summary = Object.entries(changes).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join("\n");
+  if (!confirm(`configs/${target}.json에 반영할까? (자동 백업됨)\n\n${summary}`)) return;
+  api("/api/config/" + target, {
+    method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify({changes}),
+  }).then(res => toast(res.saved ? `반영됨 (${res.diff.length}건 변경)` + (res.running ? " — 실행 중 봇은 재시작 필요" : "") : "변경 없음 (이미 동일)"))
+    .catch(e => toast("반영 실패: " + e.message));
+}
+
+async function btLoadResults() {
+  try { btResults = await api("/api/backtest/results"); btRenderResults(); }
+  catch (e) { toast("결과 로드 실패: " + e.message); }
+}
+
+btKindChanged();
+
 loadStrategies().catch(e => toast("전략 목록 로드 실패: " + e.message));
 refresh();
 setInterval(refresh, 2000);
 setInterval(() => { if (activeTab === "perf") loadPerf(); }, 10000);
+setInterval(() => { if (activeTab === "backtest") btRefresh(); }, 2000);
 </script>
 </body>
 </html>

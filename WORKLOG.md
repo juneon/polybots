@@ -30,7 +30,7 @@
   - 기능: 전략 선택, sim 시작/정지, 실행 상태 카드(heartbeat), slug 수집 게이지(n/30), 전체 정지
 - **Phase B — Performance 탭** ✅ 완료 (2026-07-11): `ui/metrics.py` — 전략/run/slug별 실현 PnL, equity curve, 계좌 잔고, run 히스토리
 - **Phase C — Config 탭** ✅ 완료 (2026-07-11): 스키마 기반 폼 + 검증 + `configs/backups/` 자동 백업 + diff. `account.*` 잠금
-- **Phase D — Backtest 탭**: `ui/jobs.py` — data_prep/engine/sweep/grid 백그라운드 실행 + 진행률 + 결과 아카이브(`backtest/results/`) 비교
+- **Phase D — Backtest 탭** ✅ 완료 (2026-07-12): `ui/jobs.py` — data_prep/engine/sweep/grid 백그라운드 실행 + 진행률 + 결과 아카이브(`backtest/results/`) 비교
 - **Phase E — live + 마감**: live 시작 3단계 가드(모드 선택→확인 문구 타이핑→config 요약), kill switch 정식화, 로그 뷰어
 
 ### 안전 원칙 (전 Phase)
@@ -258,4 +258,25 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 | `test_engine.py` | 비용 모델(매수 intent가, 매도 bid−haircut 전량 스윕, p_fail 거부) · ReplayAccount dust · 리플레이 결정성(seed 고정, parquet 없으면 skip) |
 
 - `requirements.txt`에 pytest 추가, CLAUDE.md에 구조/테스트 규칙 반영
-- 다음: **Phase D (Backtest 탭)** — 선행 조건 2개 모두 충족됨
+
+### 2026-07-12 (같은 세션) — Phase D 완료: Backtest 탭
+
+**구현** ("수집 → 재평가 → config 반영" 사이클이 UI 안에서 완결):
+
+| 파일 | 내용 |
+|---|---|
+| `ui/jobs.py` (신규) | `JobManager` — job 1개 = backtest 스크립트 subprocess 1개 (data_prep/engine/sweep_threshold/run_grid). **동시 실행 1개**(워커 스레드 + FIFO 큐, 대기 5개 제한). stdout → `logs/ctl/bt_<job_id>.log`. 결과는 스크립트 `--json`이 **직접** `backtest/results/<ts>_<seq>_<kind>_<strategy>.json`에 기록 (stdout 파싱 없음 — 설계 노트 준수). 선행조건: engine/sweep/grid는 parquet 필수 + 이벤트 로그가 더 최신이면 stale 플래그. queued 취소/running terminate 지원 |
+| `ui/server.py` | `GET /api/backtest/data`(parquet 존재/최신성) · `POST /api/backtest/run` · `GET /api/backtest/jobs[/{id}]`(+로그 tail 16KB) · `POST /api/backtest/jobs/{id}/cancel` · `GET /api/backtest/results` |
+| `index.html` Backtest 탭 | 실행 폼(종류별 폼 요소 전환, 풀 그리드는 confirm, stale 배너) → job 테이블(상태 chip, 경과, 취소) + 로그 tail 뷰(2초 폴링, 스크롤 고정) → 결과 아카이브 테이블(종류별 핵심 지표 헤드라인) → **체크로 나란히 비교** → **"1위 → config" 버튼**(Phase C PUT 재사용, confirm에 diff 요약) |
+| `.gitignore` | `backtest/results/` 추가 (logs/·configs/backups/와 동일한 런타임 산출물 방침) |
+
+**결정 추가**:
+
+| # | 결정 | 이유 |
+|---|---|---|
+| D17 | 결과 아카이브 = 스크립트 `--json`을 아카이브 경로에 직접 쓰게 함 (래핑 없음). 파일명 `<ts>_<seq>_<kind>_<strategy>.json` | JSON이 이미 self-describing(cost_model/overrides/top 포함). seq는 같은 초 충돌 방지 |
+| D18 | grid/sweep의 "1위 반영"에서 tp_abs 등 null 반영이 현 config가 non-null이면 400 — configstore D16 규칙 유지, UI는 에러 그대로 표시 | nullable 규칙을 UI 편의로 우회하지 않음 (사용자가 Config 탭에서 직접 판단) |
+
+**검증 (전부 통과)**: py_compile 2파일 + JS node --check + 기존 49 tests 통과 유지 / E2E(테스트 포트 8788): engine job 등록→queued→running→done(rc 0), 로그 tail 스트리밍, 아카이브 생성(threshold +28.50 재현), stale=true 정확(수집분이 parquet보다 최신), 400 거부 2종(kind/strategy), **큐 직렬화 확인**(2번째 job이 queued로 대기 후 순차 실행), 페이지 200
+
+**미결**: 사용자 브라우저에서 탭 실제 조작 확인(서버 `python -m ui.server` 후 Backtest 탭) — API/JS는 검증됐으나 렌더링은 육안 확인 권장

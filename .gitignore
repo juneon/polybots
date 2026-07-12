@@ -8,6 +8,7 @@ __pycache__/
 # runtime artifacts
 logs/
 sim_account*.json
+backtest/results/
 
 # backtest raw data (large; regenerated from live runs' events.csv)
 backtest/data/

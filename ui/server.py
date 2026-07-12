@@ -17,13 +17,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from strategies import REGISTRY
 from .procman import ProcManager
 from .metrics import SlugCollection, PerfReport
 from . import configstore
 from .configstore import ConfigError
+from . import jobs as btjobs
+from .jobs import JobError, JobManager
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = Path(__file__).resolve().parent / "static"
@@ -36,6 +38,7 @@ app = FastAPI(title="polybots control", docs_url=None, redoc_url=None)
 procman = ProcManager()
 collection = SlugCollection()
 perf = PerfReport()
+jobman = JobManager()
 
 
 class BotReq(BaseModel):
@@ -45,6 +48,12 @@ class BotReq(BaseModel):
 
 class ConfigChanges(BaseModel):
     changes: Dict[str, Any]
+
+
+class BacktestReq(BaseModel):
+    kind: str
+    strategy: Optional[str] = None
+    params: Dict[str, Any] = {}
 
 
 def _is_running(strategy: str) -> bool:
@@ -106,6 +115,45 @@ def config_put(strategy: str, req: ConfigChanges):
         raise HTTPException(400, str(e))
     res["running"] = _is_running(strategy)
     return res
+
+
+@app.get("/api/backtest/data")
+def backtest_data():
+    return btjobs.data_status()
+
+
+@app.post("/api/backtest/run")
+def backtest_run(req: BacktestReq):
+    try:
+        return jobman.submit(req.kind, req.strategy, req.params, list(REGISTRY))
+    except JobError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/backtest/jobs")
+def backtest_jobs():
+    return {"jobs": jobman.status(), "data": btjobs.data_status()}
+
+
+@app.get("/api/backtest/jobs/{job_id}")
+def backtest_job(job_id: str):
+    try:
+        return jobman.get(job_id)
+    except JobError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/backtest/jobs/{job_id}/cancel")
+def backtest_cancel(job_id: str):
+    try:
+        return jobman.cancel(job_id)
+    except JobError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.get("/api/backtest/results")
+def backtest_results():
+    return btjobs.results_list()
 
 
 @app.post("/api/bot/start")
