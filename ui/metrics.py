@@ -18,9 +18,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from core.logger import EVENTS_FIELDS
+
 ROOT = Path(__file__).resolve().parents[1]
 EVENTS_CSV = ROOT / "logs" / "events.csv"
 TRADES_CSV = ROOT / "logs" / "trades.csv"
+
+# events.csv column positions, derived from the logger schema (no magic indices)
+_EV_RUN_ID = EVENTS_FIELDS.index("run_id")
+_EV_TYPE = EVENTS_FIELDS.index("type")
+_EV_SLUG = EVENTS_FIELDS.index("slug")
 
 # below this remaining quantity a slug's round-trip counts as closed
 # (aligned with core.account DUST_CLEAR_TOKENS)
@@ -76,15 +83,15 @@ class SlugCollection:
 
         for line in lines:
             line = line.rstrip("\r")
-            if not line or line.startswith("run_id,"):
+            if not line or line.startswith(EVENTS_FIELDS[0] + ","):
                 continue
             try:
                 row = next(csv.reader(io.StringIO(line)))
             except (csv.Error, StopIteration):
                 continue
-            if len(row) < 3 or row[1] not in ("slug_init", "slug_change"):
+            if len(row) <= _EV_SLUG or row[_EV_TYPE] not in ("slug_init", "slug_change"):
                 continue
-            run_id, slug = row[0], row[2]
+            run_id, slug = row[_EV_RUN_ID], row[_EV_SLUG]
             if not slug:
                 continue
             self._slugs.setdefault(strategy_of_run_id(run_id), set()).add(slug)
@@ -244,9 +251,13 @@ class PerfReport:
 
 
 def _read_sim_account(strategy: str) -> Optional[Dict[str, Any]]:
-    p = ROOT / f"sim_account_{strategy}.json"
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return {"cash": data.get("cash"), "position": data.get("position")}
-    except (OSError, ValueError):
-        return None
+    # state/ is current (2026-07-12); root is the pre-migration location —
+    # a bot started with old code keeps writing there until its next restart
+    for p in (ROOT / "state" / f"sim_account_{strategy}.json",
+              ROOT / f"sim_account_{strategy}.json"):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return {"cash": data.get("cash"), "position": data.get("position")}
+        except (OSError, ValueError):
+            continue
+    return None

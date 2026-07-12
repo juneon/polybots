@@ -22,8 +22,10 @@ polybots/
 │   ├─ slug_loop.py               1초 tick · 15분 slug 롤링 → 이벤트 발생원
 │   ├─ executor_sim.py / _live.py 주문 집행 (모의 100% 체결 / 실주문 IOC 스윕) — 무상태
 │   ├─ account_sim.py / _live.py  포지션·현금의 단일 진실(SOT)
-│   ├─ logger.py / printer.py     CSV 기록 / 콘솔 출력 (sink)
-│   └─ control.py                 stop-file 감지 + heartbeat — UI와의 유일한 접점
+│   ├─ logger.py / printer.py     CSV 기록 / 콘솔 출력 (sink) — CSV 스키마 상수의 원본
+│   ├─ control.py                 stop-file 감지 + heartbeat — UI와의 유일한 접점
+│   ├─ config_schema.py           config 값 규칙 — runner 시작 시 검증 + UI 편집 검증 공용
+│   └─ contracts.py               Executor/Account Protocol (덕타이핑 계약 문서화)
 ├─ strategies/                ★ 전략 플러그인 — 1전략 = 1파일. base.py 인터페이스만 알면 됨
 │   ├─ base.py                    on_event(관찰→주문의도) / on_trade(체결 피드백) / debug_state
 │   ├─ threshold.py · ma_breakout.py
@@ -43,7 +45,7 @@ polybots/
 ├─ tests/                     ★ pytest — 전략 불변식·계좌·로거·집계·설정·엔진 (수정 후 필수 실행)
 ├─ logs/                      런타임 산출물 (gitignore): events/trades/snapshots.csv (append+run_id)
 │   └─ ctl/                       heartbeat(*.status.json) · stop-file · 봇/job stdout 로그
-├─ sim_account_<전략>.json    sim 계좌 상태 (루트, gitignore)
+├─ state/                     sim 계좌 등 런타임 상태 파일 (gitignore, 구 루트 파일은 시작 시 자동 이관)
 └─ 문서 5개                    CLAUDE(규칙) SPEC(본 문서) WORKLOG(결정·로드맵) DOCS(문서 맵) backtest/README(절차)
 ```
 
@@ -166,6 +168,8 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 | `core/printer.py` | 사람이 읽는 tick 출력 (MA 등 전략 debug 포함) | quote_ev, account, strategy | stdout |
 | `core/runner.py` | 조립 + 라우팅 + CLI(`--run-id` 포함). KeyboardInterrupt 시 로그 정상 close | argv, config | — |
 | `core/control.py` | stop-file 감지 + heartbeat 원자적 기록 (UI 연동, CLI 단독 실행에도 무해) | run_id | `logs/ctl/<run_id>.status.json` |
+| `core/config_schema.py` | config 값 규칙(이름 기반 range/enum) — runner 시작 시 `validate_config`(fail-fast), UI 편집은 `validate_change` | cfg | 오류 목록 / ConfigError |
+| `core/contracts.py` | Executor/Account Protocol — 신규 구현·모킹이 계약 준수하는지 isinstance로 확인 가능 | — | — |
 
 ## 6. 전략 명세
 

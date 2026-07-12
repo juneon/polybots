@@ -11,6 +11,7 @@ configs/      전략별 설정 — configs/<전략이름>.json
 backtest/     백테스트 — engine.py(실전략 리플레이)가 유일한 엔진, 그리드/스윕은 그 fan-out
 tests/        pytest 단위 테스트 — 전략/계좌/로거/집계/설정 검증 (python -m pytest tests/)
 logs/         런타임 CSV 로그 (append 모드, run_id 컬럼으로 실행 구분)
+state/        런타임 상태 파일 — sim 계좌 등 (gitignore)
 SPEC.md       아키텍처/스키마/전략 규칙 명세 (수정 시 함께 갱신할 것)
 WORKLOG.md    결정·진행·로드맵의 단일 기록처 — 세션 재개는 여기부터
 DOCS.md       문서 맵 — 문서는 5개가 전부. 새 .md 만들기 전에 볼 것

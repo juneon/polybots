@@ -13,6 +13,24 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# CSV schemas — the single source for column names. Consumers (ui/metrics,
+# backtest, tests) import these instead of re-typing header strings.
+EVENTS_FIELDS = ["run_id", "type", "slug", "tick", "ts", "data"]
+TRADES_FIELDS = [
+    "run_id", "ts", "slug", "tick", "trade_id",
+    "intent_kind", "side", "qty", "intent_price", "time_left_sec",
+    "status", "reason", "fill_price",
+    "qty_tokens", "notional_usd", "proceeds_usd",
+    "data",
+]
+SNAPSHOTS_FIELDS = [
+    "run_id", "ts", "slug", "tick",
+    "cash", "position_side", "position_entry", "position_qty_tokens", "position_notional_usd",
+    "entries_up", "entries_down", "tp_done",
+    "quote_up_bid", "quote_up_ask", "quote_down_bid", "quote_down_ask",
+    "data",
+]
+
 
 class Logger:
     def __init__(self, cfg: dict, run_id: str = "", logs_dir: str = "logs"):
@@ -33,34 +51,13 @@ class Logger:
         self._fs = self._ws = None
 
         if self.on_events:
-            self._fe, self._we = self._open(
-                d / "events.csv",
-                ["run_id", "type", "slug", "tick", "ts", "data"],
-            )
+            self._fe, self._we = self._open(d / "events.csv", EVENTS_FIELDS)
 
         if self.on_trades:
-            self._ft, self._wt = self._open(
-                d / "trades.csv",
-                [
-                    "run_id", "ts", "slug", "tick", "trade_id",
-                    "intent_kind", "side", "qty", "intent_price", "time_left_sec",
-                    "status", "reason", "fill_price",
-                    "qty_tokens", "notional_usd", "proceeds_usd",
-                    "data",
-                ],
-            )
+            self._ft, self._wt = self._open(d / "trades.csv", TRADES_FIELDS)
 
         if self.on_snaps:
-            self._fs, self._ws = self._open(
-                d / "snapshots.csv",
-                [
-                    "run_id", "ts", "slug", "tick",
-                    "cash", "position_side", "position_entry", "position_qty_tokens", "position_notional_usd",
-                    "entries_up", "entries_down", "tp_done",
-                    "quote_up_bid", "quote_up_ask", "quote_down_bid", "quote_down_ask",
-                    "data",
-                ],
-            )
+            self._fs, self._ws = self._open(d / "snapshots.csv", SNAPSHOTS_FIELDS)
 
     @staticmethod
     def _open(path: Path, fieldnames: list):

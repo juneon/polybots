@@ -36,7 +36,7 @@ import pandas as pd
 from engine import ROOT, prepare_slugs, replay
 
 DATA_PATH = "data/quotes_all.parquet"
-OUT_CSV = "grid_results_realistic.csv"
+OUT_CSV = "results/grid_results_realistic.csv"
 
 # ====== grid axes — REAL strategy config keys (strategies/ma_breakout.py) ======
 GRID = {
@@ -160,6 +160,7 @@ def run(args):
                       flush=True)
 
         res = pd.DataFrame(rows)
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         res.to_csv(args.out, index=False)
         print(f"\nsaved: {args.out}", flush=True)
 

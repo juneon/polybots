@@ -23,7 +23,7 @@ STOP_DROP = [0.04, 0.06, 0.08, 0.10]
 TAKE_PROFIT = [0.96, 0.98, 0.99]
 ENTRY_CAP = [0.90, 0.95]
 
-OUT_CSV = "sweep_threshold_results.csv"
+OUT_CSV = "results/sweep_threshold_results.csv"
 
 
 def main():
@@ -64,6 +64,7 @@ def main():
             print(f"{i}/{len(combos)} done", flush=True)
 
     df = pd.DataFrame(rows).sort_values("score", ascending=False)
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(args.out, index=False)
     print("\n===== TOP 15 (realistic costs, sorted by score) =====")
     print(df.head(15).to_string(index=False))

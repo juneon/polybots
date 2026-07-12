@@ -11,12 +11,12 @@ AGENTS.md
 
 # runtime artifacts
 logs/
+state/
 sim_account*.json
 backtest/results/
 
 # backtest raw data (large; regenerated from live runs' events.csv)
 backtest/data/
-backtest/grid_results.csv
 
 # legacy checkouts (own git repos, kept as archive)
 polybots_MA/

@@ -260,6 +260,7 @@ def main():
             "cost_model": {"haircut": args.haircut, "p_fail": args.pfail, "seed": args.seed},
             "data": args.data, "elapsed_sec": round(dt, 2), **r,
         }
+        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
         Path(args.json).write_text(json.dumps(out, indent=2), encoding="utf-8")
         print(f"json: {args.json}")
 

@@ -25,11 +25,24 @@ from .account_sim import SimAccount
 from .logger import Logger
 from .printer import Printer
 from .control import RunControl, snapshot_status
+from .config_schema import validate_config
 from strategies import REGISTRY, create_strategy
 
 log = logging.getLogger("core.runner")
 
 ROOT = Path(__file__).resolve().parents[1]
+STATE_DIR = ROOT / "state"   # runtime state files (sim accounts), gitignored
+
+
+def _sim_account_path(strategy_name: str) -> Path:
+    """state/sim_account_<strategy>.json — migrates the old root-level file once."""
+    STATE_DIR.mkdir(exist_ok=True)
+    path = STATE_DIR / f"sim_account_{strategy_name}.json"
+    legacy = ROOT / f"sim_account_{strategy_name}.json"
+    if not path.exists() and legacy.exists():
+        legacy.replace(path)
+        log.info("migrated %s -> %s", legacy.name, path)
+    return path
 
 
 def load_config(path: Path) -> dict:
@@ -44,7 +57,7 @@ def build_account_executor(mode: str, cfg: dict, pm: PolymarketAdapter, strategy
         from .executor_live import LiveExecutor
         return LiveAccount(cfg), LiveExecutor(cfg, pm)
     # per-strategy account file: concurrent sims must not share cash/position
-    return SimAccount(str(ROOT / f"sim_account_{strategy_name}.json")), SimExecutor(guard=True)
+    return SimAccount(str(_sim_account_path(strategy_name))), SimExecutor(guard=True)
 
 
 def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
@@ -147,6 +160,13 @@ def main(argv=None) -> None:
 
     cfg_path = Path(args.config) if args.config else ROOT / "configs" / f"{args.strategy}.json"
     cfg = load_config(cfg_path)
+
+    # fail fast on a bad (e.g. hand-edited) config instead of booting a bot with it
+    errors = validate_config(cfg)
+    if errors:
+        for e in errors:
+            log.error("config invalid: %s", e)
+        raise SystemExit(f"config validation failed ({cfg_path}): {len(errors)} error(s)")
 
     run_id = args.run_id or (time.strftime("%Y%m%d_%H%M%S") + f"_{args.strategy}_{args.mode}")
 

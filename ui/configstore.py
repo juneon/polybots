@@ -18,30 +18,17 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+# value rules live in core so the runner validates the same schema at startup
+from core.config_schema import ConfigError, ENUM_FIELDS, validate_change
+
 ROOT = Path(__file__).resolve().parents[1]
 CONFIGS = ROOT / "configs"
 BACKUPS = CONFIGS / "backups"
 
-# editable scope (D14): whitelist, everything else locked
+# editable scope (D14): whitelist, everything else locked — UI-only policy
 EDITABLE_TOP_SCALARS = {"loop_mode", "run_seconds", "max_slugs", "print_every", "timeout_sec"}
 EDITABLE_SECTIONS = ("strategy", "execution", "logging")
 LOCKED_TOP_KEYS = ("gamma_base", "clob_base", "event_slug_prefix", "interval_sec", "account")
-
-# value rules by field name (leaf)
-UNIT_INTERVAL_FIELDS = {
-    "enter_price_1", "enter_price_re", "entry_cap", "stop_drop", "take_profit",
-    "cap", "tp_abs", "slippage", "buy_cap", "sell_floor",
-}
-POSITIVE_FIELDS = {"qty_tokens", "ma_len", "timeout_sec"}
-ENUM_FIELDS = {
-    "loop_mode": ("one", "rolling", "duration"),
-    "buy": ("market", "limit"), "tp": ("market", "limit"),
-    "sl": ("market", "limit"), "time": ("market", "limit"),
-}
-
-
-class ConfigError(Exception):
-    pass
 
 
 def config_path(name: str) -> Path:
@@ -78,7 +65,7 @@ def apply_changes(name: str, changes: Dict[str, Any]) -> Dict[str, Any]:
 
         parent, leaf = _resolve(cfg, parts, path)
         old = parent[leaf]
-        new = _validate_value(leaf, old, new, path)
+        new = validate_change(leaf, old, new, path)
         if new == old and type(new) is type(old):
             continue  # no-op
         parent[leaf] = new
@@ -120,41 +107,3 @@ def _resolve(cfg: Dict[str, Any], parts: List[str], path: str):
     if not isinstance(parent, dict) or leaf not in parent:
         raise ConfigError(f"존재하지 않는 키: {path} (UI로 새 키 추가 불가)")
     return parent, leaf
-
-
-def _validate_value(leaf: str, old: Any, new: Any, path: str) -> Any:
-    # type conformance against the current value
-    if isinstance(old, bool):
-        if not isinstance(new, bool):
-            raise ConfigError(f"{path}: true/false 여야 함")
-        return new
-    if old is None or isinstance(old, (int, float)):
-        if new is None:
-            if old is not None:
-                raise ConfigError(f"{path}: null 불가 (숫자 필요)")
-            return None
-        if isinstance(new, bool) or not isinstance(new, (int, float)):
-            raise ConfigError(f"{path}: 숫자여야 함 (현재 {new!r})")
-        if isinstance(old, int) and isinstance(new, float) and not new.is_integer():
-            raise ConfigError(f"{path}: 정수여야 함")
-        new = int(new) if isinstance(old, int) and not isinstance(old, bool) else float(new) if isinstance(old, float) else new
-        return _check_range(leaf, new, path)
-    if isinstance(old, str):
-        if not isinstance(new, str) or not new.strip():
-            raise ConfigError(f"{path}: 문자열이어야 함")
-        new = new.strip()
-        if leaf in ENUM_FIELDS and new not in ENUM_FIELDS[leaf]:
-            raise ConfigError(f"{path}: {ENUM_FIELDS[leaf]} 중 하나여야 함")
-        return new
-    raise ConfigError(f"{path}: 편집 불가 타입 ({type(old).__name__})")
-
-
-def _check_range(leaf: str, v: float, path: str) -> float:
-    if leaf in UNIT_INTERVAL_FIELDS and not (0.0 <= v <= 1.0):
-        raise ConfigError(f"{path}: 0~1 범위여야 함")
-    if leaf in POSITIVE_FIELDS and v <= 0:
-        raise ConfigError(f"{path}: 양수여야 함")
-    if (leaf.endswith("_sec") or leaf in ("run_seconds", "max_slugs", "print_every",
-                                          "max_entries_per_slug", "tick_confirm")) and v < 0:
-        raise ConfigError(f"{path}: 음수 불가")
-    return v

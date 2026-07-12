@@ -5,11 +5,8 @@ cumulative fill cash-flow. Plus run_id parsing with '_' in strategy names."""
 import csv
 
 import ui.metrics as metrics
+from core.logger import TRADES_FIELDS as FIELDS
 from ui.metrics import PerfReport, mode_of_run_id, strategy_of_run_id
-
-FIELDS = ["run_id", "ts", "slug", "tick", "trade_id", "intent_kind", "side", "qty",
-          "intent_price", "time_left_sec", "status", "reason", "fill_price",
-          "qty_tokens", "notional_usd", "proceeds_usd", "data"]
 
 
 def write_trades(path, rows):

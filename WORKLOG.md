@@ -233,10 +233,10 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 |---|---|---|---|---|
 | 1 | **backtest 전략 로직 이중화 제거** ✅ 완료 (2026-07-12) | `backtest.py`(무비용 구버전)와 `run_grid.py`가 MA 로직을 재구현 — 파일 주석 스스로 "전략 바뀌면 sync 필요" 인정. engine.py 방식(실전략 리플레이)으로 통일: engine의 리플레이 코어를 함수로 추출 → run_grid는 그걸 프로세스풀로 fan-out, backtest.py는 폐기 | 중 | **Phase D 착수 전** |
 | 2 | **tests/ 신설** ✅ 완료 (2026-07-12) | 리팩토링 때의 7개 파이프라인 테스트가 커밋 안 된 일회성이었음. tests/로 영구화: 거부매수 재시도·exit 래치·logger append·PerfReport 집계·configstore 검증 | 중 | Phase D 착수 전 |
-| 3 | config 검증 위치 이동 | 검증 규칙이 ui/configstore.py에만 있음 → core/config_schema.py로 옮겨 **runner 시작 시에도 검증** (지금은 잘못된 config로도 봇이 뜸). UI는 그걸 import | 소 | 아무 때나 |
-| 4 | 런타임 상태 파일 정리 | sim_account_*.json이 루트에 산재 → `state/` 디렉토리로. backtest 결과 CSV(grid_results*.csv 등)도 `backtest/results/`로 | 소 | Phase D에서 자연 해결 |
-| 5 | 로그 스키마 상수화 | CSV 컬럼명이 core/logger·ui/metrics·backtest에 문자열로 중복 — logger가 스키마 상수를 노출하고 나머지가 import | 소 | 아무 때나 |
-| 6 | executor/account 계약 명시화 | 현재 duck-typing — strategies/base.py처럼 Protocol/ABC로 인터페이스 문서화 (신규 구현·모킹 시 실수 방지) | 소 | 아무 때나 |
+| 3 | config 검증 위치 이동 ✅ 완료 (2026-07-12) | 검증 규칙이 ui/configstore.py에만 있음 → core/config_schema.py로 옮겨 **runner 시작 시에도 검증** (지금은 잘못된 config로도 봇이 뜸). UI는 그걸 import | 소 | 아무 때나 |
+| 4 | 런타임 상태 파일 정리 ✅ 완료 (2026-07-12) | sim_account_*.json이 루트에 산재 → `state/` 디렉토리로. backtest 결과 CSV(grid_results*.csv 등)도 `backtest/results/`로 | 소 | Phase D에서 자연 해결 |
+| 5 | 로그 스키마 상수화 ✅ 완료 (2026-07-12) | CSV 컬럼명이 core/logger·ui/metrics·backtest에 문자열로 중복 — logger가 스키마 상수를 노출하고 나머지가 import | 소 | 아무 때나 |
+| 6 | executor/account 계약 명시화 ✅ 완료 (2026-07-12) | 현재 duck-typing — strategies/base.py처럼 Protocol/ABC로 인터페이스 문서화 (신규 구현·모킹 시 실수 방지) | 소 | 아무 때나 |
 | 7 | 레거시 3폴더 정리 | P0 재검증으로 새 구조 신뢰 확보 후 archive/ 하위 이동 또는 삭제 (git 스냅샷 존재: MA d0129ca, pre 3c2186c) | 소 | P0 완료 후 |
 | 8 | 패키징 | pyproject.toml (+콘솔 스크립트) — 현재 `-m` 실행으로 충분, 서버 배포(P3) 시점에 | 소 | P3 |
 
@@ -312,3 +312,14 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - `SPEC.md` v3.1로 현행화: §9 엔진 통일 반영, §10을 Control UI·tests로 교체, 로드맵은 WORKLOG 포인터화, §5에 core/control.py 추가
 - `.pytest_cache/` gitignore. 레거시 `SPECv2.1.md` 2부는 폴더째 정리(#7) 때 함께 처분
 - 후속: SPEC §2를 "구조도" 챕터로 확장 — 2.1 폴더 지도(주석 트리) · 2.2 실행 단위 3종(봇/UI/backtest)과 파일 결합 관계도 · 2.3 기존 이벤트 스트림
+
+### 2026-07-12 (같은 세션) — 구조 개선 #3~#6 완료 (감사 항목 전부 소진, #7·#8만 잔류)
+
+| # | 구현 |
+|---|---|
+| #3 | `core/config_schema.py` 신설 — 값 규칙(이름 기반 range/enum/양수/비음수)의 단일 원본. **runner가 시작 시 `validate_config`로 fail-fast** (잘못된 config로 봇이 뜨지 않음 — cap=1.5로 exit 1 검증). ui/configstore는 `validate_change` import (잠금/백업/diff 정책만 UI에 잔류) |
+| #4 | sim 계좌 → `state/sim_account_<전략>.json`. **시작 시 구 루트 파일 자동 이관**(runner), UI metrics는 state/→루트 폴백(구코드로 도는 봇 호환). 죽은 `sim_account.json`(D7 이전) 삭제. 구 축(상대 tp/sl) 결과 CSV 2개 git rm, backtest 스크립트 기본 출력도 `results/`로 |
+| #5 | `core/logger.py`가 EVENTS/TRADES/SNAPSHOTS_FIELDS 상수 노출 — ui/metrics(매직 인덱스 제거)·tests가 import |
+| #6 | `core/contracts.py` — Executor/Account `@runtime_checkable` Protocol. Sim/Replay 페어 conformance 테스트 포함 |
+
+**검증**: 테스트 53개(신규 4: 계약 준수 2 + 배포 config 유효성 + 잘못된 값 검출) 전부 통과 / bad-config runner exit 1 / ma_breakout sim 스모크 — stop-file graceful 종료(rc 0), state/ 이관 확인. **주의: 실행 중이던 threshold sim(사용자 터미널)은 구코드라 루트 파일에 계속 씀 — 다음 재시작 때 자동 이관되고 그동안 UI 폴백이 커버**
