@@ -320,6 +320,7 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - **ignore**: `logs/ctl/`(heartbeat·stop·stdout — 머신 로컬), `quotes_all.parquet`(data_prep으로 재생성), 루트 `sim_account*.json` 잔재, `.env`(불변 — 절대 커밋 금지), `configs/backups/`, `archive/`
 - **멀티 머신 규칙: 수집(sim)은 한 번에 한 머신에서만.** 떠나기 전 `봇 정지 → 스냅샷 커밋 → push`, 도착해서 `pull → 봇 시작`. logs는 append 파일이라 양쪽 동시 수집 시 git 병합 불가.
 - 회사 PC 최초 셋업: `git clone` → `pip install -r requirements.txt` → `python -m pytest tests/ -q`(53개) → `python -m ui.server`. live 자격증명(.env)은 git 밖 — sim/백테스트/UI에는 불필요.
+- **원격 연결 완료**: https://github.com/juneon/polybots (private). 이 repo는 1~2월 구버전이 들어있던 기존 repo였음 — 구 히스토리는 **`legacy-v2` 브랜치로 보존**(+로컬 archive/에 이중 보존) 후 main을 현 모노레포로 교체. 수집 8/30 시점 스냅샷까지 push됨 — 회사 PC는 clone 후 9번째 slug부터 이어서 수집.
 
 ### 2026-07-12 (같은 세션) — 구조 개선 #3~#6 완료 (감사 항목 전부 소진, #7·#8만 잔류)
 
