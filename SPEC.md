@@ -10,7 +10,70 @@
 - 하나의 코어 엔진 위에서 여러 전략을 플러그인으로 운용 (1 전략 = 1 모듈 + 1 config).
 - sim(모의)과 live(실거래)는 Account/Executor 교체로만 전환. 전략 코드는 동일.
 
-## 2. Architecture — 단방향 이벤트 스트림 (핵심 불변)
+## 2. 구조도
+
+### 2.1 폴더 지도 — 무엇이 어디 있나
+
+```
+polybots/
+├─ core/                      ★ 엔진 — 전략을 모르는 공용 부품 (봇 프로세스의 몸통)
+│   ├─ runner.py                  조립+CLI: 아래 부품을 연결해 봇 1개를 만든다 (유일한 조립 지점)
+│   ├─ adapters_polymarket.py     시세 소스 (Gamma: slug→token_id, CLOB: bid/ask)
+│   ├─ slug_loop.py               1초 tick · 15분 slug 롤링 → 이벤트 발생원
+│   ├─ executor_sim.py / _live.py 주문 집행 (모의 100% 체결 / 실주문 IOC 스윕) — 무상태
+│   ├─ account_sim.py / _live.py  포지션·현금의 단일 진실(SOT)
+│   ├─ logger.py / printer.py     CSV 기록 / 콘솔 출력 (sink)
+│   └─ control.py                 stop-file 감지 + heartbeat — UI와의 유일한 접점
+├─ strategies/                ★ 전략 플러그인 — 1전략 = 1파일. base.py 인터페이스만 알면 됨
+│   ├─ base.py                    on_event(관찰→주문의도) / on_trade(체결 피드백) / debug_state
+│   ├─ threshold.py · ma_breakout.py
+│   └─ __init__.py                REGISTRY — 전략 등록부 (여기 1줄 추가로 CLI/UI/백테스트에 자동 인식)
+├─ configs/                   ★ 전략별 설정 (<전략>.json) + backups/ (UI 저장 시 자동 백업)
+├─ backtest/                  ★ 검증 도구 — 코드를 바꾸기 전/후 기대값 확인
+│   ├─ engine.py                  유일한 엔진: 실제 strategies/ 코드 리플레이 + 비용 모델
+│   ├─ run_grid.py · sweep_threshold.py · data_prep.py
+│   ├─ data/                      수집 원본 CSV → quotes_all.parquet (gitignore)
+│   └─ results/                   실행 결과 아카이브 JSON/CSV (gitignore)
+├─ ui/                        ★ 관제탑 — 로컬 웹 대시보드 (봇과는 별도 프로세스)
+│   ├─ server.py                  FastAPI (127.0.0.1:8787) + static/index.html (탭 4개)
+│   ├─ procman.py                 봇 시작/정지 (subprocess + stop-file)
+│   ├─ jobs.py                    백테스트 job 큐 (동시 1개)
+│   ├─ metrics.py                 logs/ 집계 (수집 게이지 · PnL/equity)
+│   └─ configstore.py             config 검증/백업/diff
+├─ tests/                     ★ pytest — 전략 불변식·계좌·로거·집계·설정·엔진 (수정 후 필수 실행)
+├─ logs/                      런타임 산출물 (gitignore): events/trades/snapshots.csv (append+run_id)
+│   └─ ctl/                       heartbeat(*.status.json) · stop-file · 봇/job stdout 로그
+├─ sim_account_<전략>.json    sim 계좌 상태 (루트, gitignore)
+└─ 문서 5개                    CLAUDE(규칙) SPEC(본 문서) WORKLOG(결정·로드맵) DOCS(문서 맵) backtest/README(절차)
+```
+
+### 2.2 실행 단위 관계도 — 프로세스 3종과 파일 결합
+
+실행 단위는 3종뿐이고, 서로 **직접 호출 없이 파일로만** 결합된다 (크래시 격리 — 하나가 죽어도 나머지 생존):
+
+```
+ 브라우저 ⇄ http://127.0.0.1:8787
+              │
+   ┌──────────┴──────────────────────────┐
+   │ ② UI 서버  python -m ui.server      │   (.env 절대 안 읽음 · live 403)
+   └───┬────────────────────┬────────────┘
+       │ subprocess 시작     │ subprocess 실행
+       │ + stop-file 정지    │ (동시 1개 큐)
+       ▼                    ▼
+   ┌─────────────────┐   ┌──────────────────────┐
+   │ ① 봇 프로세스     │   │ ③ backtest 스크립트   │
+   │ core.runner      │   │ engine / grid / sweep │
+   │ (전략당 1개,      │   │ (backtest/에서 실행)  │
+   │  터미널 단독도 가능)│   └──────────────────────┘
+   └─────────────────┘
+   파일 결합(전부 단방향):
+   ①→ logs/*.csv (append)        ①⇄ logs/ctl/ (heartbeat ↑ · stop-file ↓)
+   ①← configs/*.json (시작 시 1회 로드 — 저장해도 재시작 전엔 미반영)
+   ③← backtest/data/parquet (data_prep이 logs/events.csv 등에서 생성)
+   ③→ backtest/results/ (--json 아카이브) → ② 비교 → "1위 → config 반영" → configs/
+```
+
+### 2.3 Architecture — 단방향 이벤트 스트림 (핵심 불변)
 
 ```
 configs/<strategy>.json

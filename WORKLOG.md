@@ -311,3 +311,4 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - 숨은 문서 발굴: `polybots_pre/backup/`의 19개(SPEC v0.1~v2.0 초안 등, 레거시 git에도 없던 untracked) → **pre git 스냅샷 `5a84048`로 보존 후 디스크 삭제**
 - `SPEC.md` v3.1로 현행화: §9 엔진 통일 반영, §10을 Control UI·tests로 교체, 로드맵은 WORKLOG 포인터화, §5에 core/control.py 추가
 - `.pytest_cache/` gitignore. 레거시 `SPECv2.1.md` 2부는 폴더째 정리(#7) 때 함께 처분
+- 후속: SPEC §2를 "구조도" 챕터로 확장 — 2.1 폴더 지도(주석 트리) · 2.2 실행 단위 3종(봇/UI/backtest)과 파일 결합 관계도 · 2.3 기존 이벤트 스트림
