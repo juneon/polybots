@@ -1,10 +1,11 @@
 # backtest/engine.py
 """Exact-replay backtest engine — runs the REAL strategy classes over recorded quotes.
 
-Unlike run_grid.py (fast vectorized approximation for parameter sweeps), this engine
-replays `strategies/<name>.py` through the same on_event/on_trade pipeline as
-core/runner.py, so strategy semantics (exit_armed latch, buy_inflight, on_trade
-counters, ...) are exercised exactly. Use it to validate top grid candidates.
+This is the ONLY backtest engine: it replays `strategies/<name>.py` through the
+same on_event/on_trade pipeline as core/runner.py, so strategy semantics
+(exit_armed latch, buy_inflight, on_trade counters, ...) are exercised exactly.
+Sweeps (run_grid.py, sweep_threshold.py) fan this replay out over parameter
+combos — there is no separate reimplementation of strategy logic to keep in sync.
 
 Cost model (calibrated 2026-03-03 live session):
   - BUY fills at intent price (ask)      — measured slip ~= 0
@@ -119,23 +120,38 @@ class ReplayExecutor:
         return {**base, "status": "filled", "reason": "", "qty_tokens": want, "fill_price": fill_px}
 
 
-def replay(strategy_name: str, cfg: Dict[str, Any], quotes: pd.DataFrame,
+def prepare_slugs(quotes: pd.DataFrame) -> List[tuple]:
+    """Group + sort the quotes table once, for repeated replay() calls (sweeps).
+
+    Returns [(slug, source, sorted_df), ...]; pass the list as replay()'s
+    `quotes` argument to skip the per-call groupby.
+    """
+    out = []
+    for slug, s in quotes.groupby("slug", sort=False):
+        out.append((slug, s["source"].iloc[0], s.sort_values("tick")))
+    return out
+
+
+def replay(strategy_name: str, cfg: Dict[str, Any], quotes,
            haircut: float = 0.01, p_fail: float = 0.2, seed: int = 42) -> Dict[str, Any]:
-    """Replay one strategy config over the quotes table. Returns stats dict."""
+    """Replay one strategy config over the quotes. Returns stats dict.
+
+    `quotes` is either the raw DataFrame or the output of prepare_slugs().
+    """
     strategy = create_strategy(strategy_name, cfg)
     account = ReplayAccount()
     executor = ReplayExecutor(haircut=haircut, p_fail=p_fail, seed=seed)
+
+    slug_groups = quotes if isinstance(quotes, list) else prepare_slugs(quotes)
 
     per_slug: Dict[str, float] = {}
     per_source: Dict[str, float] = {}
     n_fills = 0
     slug_idx = 0
 
-    for slug, s in quotes.groupby("slug", sort=False):
-        s = s.sort_values("tick")
+    for slug, source, s in slug_groups:
         slug_idx += 1
         account.reset_state(slug_idx)
-        source = s["source"].iloc[0]
 
         ev0 = {"type": "slug_init" if slug_idx == 1 else "slug_change", "slug": slug,
                "slug_start_ts": 0, "time_left_sec": int(s["time_left_sec"].iloc[0]),
@@ -211,6 +227,8 @@ def main():
     ap.add_argument("--pfail", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--data", default="data/quotes_all.parquet")
+    ap.add_argument("--json", default=None, metavar="PATH",
+                    help="also write the full result dict as JSON (machine-readable, for UI jobs)")
     args = ap.parse_args()
 
     cfg_path = Path(args.config) if args.config else ROOT / "configs" / f"{args.strategy}.json"
@@ -235,6 +253,15 @@ def main():
     print(f"TOTAL PnL: {r['total_pnl']:+.2f} USD | MDD {r['mdd']:.2f} | score {r['score']:.2f} "
           f"| slug W/L {r['wins']}/{r['losses']}")
     print(f"per source: {r['per_source']}")
+
+    if args.json:
+        out = {
+            "kind": "engine", "strategy": args.strategy, "overrides": args.set,
+            "cost_model": {"haircut": args.haircut, "p_fail": args.pfail, "seed": args.seed},
+            "data": args.data, "elapsed_sec": round(dt, 2), **r,
+        }
+        Path(args.json).write_text(json.dumps(out, indent=2), encoding="utf-8")
+        print(f"json: {args.json}")
 
 
 if __name__ == "__main__":

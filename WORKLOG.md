@@ -209,7 +209,7 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 
 | # | 항목 | 내용 | 노력 | 시점 |
 |---|---|---|---|---|
-| 1 | **backtest 전략 로직 이중화 제거** | `backtest.py`(무비용 구버전)와 `run_grid.py`가 MA 로직을 재구현 — 파일 주석 스스로 "전략 바뀌면 sync 필요" 인정. engine.py 방식(실전략 리플레이)으로 통일: engine의 리플레이 코어를 함수로 추출 → run_grid는 그걸 프로세스풀로 fan-out, backtest.py는 폐기 | 중 | **Phase D 착수 전** |
+| 1 | **backtest 전략 로직 이중화 제거** ✅ 완료 (2026-07-12) | `backtest.py`(무비용 구버전)와 `run_grid.py`가 MA 로직을 재구현 — 파일 주석 스스로 "전략 바뀌면 sync 필요" 인정. engine.py 방식(실전략 리플레이)으로 통일: engine의 리플레이 코어를 함수로 추출 → run_grid는 그걸 프로세스풀로 fan-out, backtest.py는 폐기 | 중 | **Phase D 착수 전** |
 | 2 | **tests/ 신설** | 리팩토링 때의 7개 파이프라인 테스트가 커밋 안 된 일회성이었음. tests/로 영구화: 거부매수 재시도·exit 래치·logger append·PerfReport 집계·configstore 검증 | 중 | Phase D 착수 전 |
 | 3 | config 검증 위치 이동 | 검증 규칙이 ui/configstore.py에만 있음 → core/config_schema.py로 옮겨 **runner 시작 시에도 검증** (지금은 잘못된 config로도 봇이 뜸). UI는 그걸 import | 소 | 아무 때나 |
 | 4 | 런타임 상태 파일 정리 | sim_account_*.json이 루트에 산재 → `state/` 디렉토리로. backtest 결과 CSV(grid_results*.csv 등)도 `backtest/results/`로 | 소 | Phase D에서 자연 해결 |
@@ -219,3 +219,26 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 | 8 | 패키징 | pyproject.toml (+콘솔 스크립트) — 현재 `-m` 실행으로 충분, 서버 배포(P3) 시점에 | 소 | P3 |
 
 **하지 않기로 한 것**: core를 더 잘게 쪼개기(이벤트버스, DI 프레임워크 등) — 현재 규모(~4k LOC)에서 추상화 비용 > 이득. 전략이 5개+ 되고 자산이 늘면 재검토.
+
+---
+
+### 2026-07-12 — 구조 개선 #1 완료: backtest 엔진 통일 (Phase D 선행 작업)
+
+**변경**:
+
+| 파일 | 내용 |
+|---|---|
+| `backtest/engine.py` | 리플레이 코어에서 `prepare_slugs()` 추출 (그리드가 groupby를 콤보마다 반복하지 않게) · `replay()`가 DataFrame 또는 prepared 리스트 둘 다 수용 · `--json <path>` 출력 추가 (Phase D의 "stdout 정규식 파싱 금지" 대비) |
+| `backtest/run_grid.py` | **전면 재작성** — 벡터화 MA 재구현 삭제, `engine.replay`를 프로세스풀로 fan-out. 그리드 축을 실전략 config 키로 교체 (**구 그리드의 상대 tp/sl 축은 실전략이 지원하지 않는 파라미터였음** → `tp_abs` [None, 0.95, 0.98, 0.99]로 대체). train/val 분리·구 최적점 비교·헤어컷 민감도 유지. `--quick`(16콤보 스모크)/`--workers`/`--json` 추가 |
+| `backtest/sweep_threshold.py` | `prepare_slugs` 사용 + argparse(`--haircut/--pfail/--seed/--data/--out/--json`) |
+| `backtest/backtest.py` | **폐기(git rm)** — 무비용 + MA 로직 이중화. git 이력으로만 참조 |
+| `backtest/README.md` | 파이프라인/파일 표 갱신, dust_frac 행 제거(엔진 모델로 통일) |
+
+**검증 (전부 통과)**:
+- 회귀: 수정 후 `engine.py`가 수정 전과 완전 동일 수치 — MA −5.18 / 1138 fills / MDD −52.80, threshold +28.50 / 340 fills
+- `run_grid --quick`(4워커, Windows spawn) 정상 — 교차검증: 그리드의 tp_abs=0.98/cd0/ban-none 행(train 24.74, val −29.92)이 단독 엔진 실행 per_source와 정확히 일치
+- `sweep_threshold` 72콤보 — 기존 판정 재현 (tp 0.99가 1위 score 22.65, 현 config 2위)
+- 3파일 py_compile + JSON 출력 4종 파싱 확인
+- 성능: exact-replay ~1.1s/콤보 → 풀 그리드 3600콤보 ≈ 10워커 13분 (구 벡터화 15분과 대등)
+
+**의미**: 이제 백테스트 경로가 `engine.replay` 하나 — 전략 코드가 바뀌면 그리드/스윕이 자동 추종. 단, 구 `grid_results_realistic.csv`(상대 tp/sl 축)와 새 그리드 결과는 축이 달라 직접 비교 불가 — 다음 풀 그리드 실행 시 새 기준으로 갱신할 것.

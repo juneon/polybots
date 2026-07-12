@@ -8,10 +8,13 @@
 ① 데이터 수집     운영/sim 실행 시 logging.events=true → logs/events.csv 축적
 ② 데이터 통합     python data_prep.py
                   → 모든 소스를 data/quotes_all.parquet로 정규화 (slug,tick 중복 제거)
-③ 폭넓은 탐색     python run_grid.py            (ma_breakout 벡터화 그리드, 3,600조합)
-                  python sweep_threshold.py     (threshold 엔진 스윕)
+③ 폭넓은 탐색     python run_grid.py            (ma_breakout 그리드, 3,600조합 — 엔진 fan-out)
+                  python sweep_threshold.py     (threshold 스윕 — 엔진 직접 호출)
 ④ 정밀 검증       python engine.py --strategy <name> --set key=val ...
-                  → 실제 strategies/ 코드를 그대로 리플레이 (래치/재시도 포함)
+
+  ③④ 모두 같은 engine.replay — 실제 strategies/ 코드를 그대로 리플레이 (래치/재시도 포함).
+  전략 로직 재구현 없음: 전략 코드가 바뀌면 그리드/스윕 결과도 자동으로 따라간다.
+  모든 스크립트가 --json <path>로 기계가 읽을 요약을 출력 (UI Backtest 탭용).
 ⑤ 반영            검증 통과 파라미터만 configs/<name>.json에 반영 → sim 재검증 → (최후) live
 ```
 
@@ -22,7 +25,6 @@
 | 매수 슬리피지 | 평균 ≈ 0 (intent ask 그대로 체결) | 0 |
 | 매도 헤어컷 | 평균 +0.44c, 중앙값 +0.9c, p90 +3c | `haircut=0.01` |
 | 매도 시도 실패율 | 22.1% (재시도로 회복) | `p_fail=0.2` |
-| dust 미체결 | 왕복당 ~1.3% 수량 | `dust_frac=0.013` (grid만) |
 
 ## 검증 규칙
 
@@ -36,12 +38,14 @@
 
 | 파일 | 역할 |
 |---|---|
+| `engine.py` | 유일한 백테스트 엔진 — 실제 전략 클래스 리플레이 + 비용/실패 모델. `from engine import replay, prepare_slugs` |
 | `data_prep.py` | 이벤트 CSV들 → `data/quotes_all.parquet` 통합 |
-| `run_grid.py` | ma_breakout 현실화 그리드 (train/val 분리, 헤어컷 민감도) |
-| `sweep_threshold.py` | threshold 엔진 기반 파라미터 스윕 |
-| `engine.py` | 정밀 리플레이 (실제 전략 클래스 + 비용/실패 모델). import 가능: `from engine import replay` |
-| `backtest.py` | (구) 무비용 벡터화 그리드 — 참고용 |
+| `run_grid.py` | ma_breakout 그리드 = engine.replay를 프로세스풀로 fan-out (train/val 분리, 헤어컷 민감도, `--quick` 스모크) |
+| `sweep_threshold.py` | threshold 스윕 = engine.replay 직접 호출 |
 | `data/` | 원본 이벤트 CSV + 통합 parquet (gitignore) |
+
+> `backtest.py`(무비용 벡터화 그리드)는 2026-07-12 폐기 — MA 로직을 재구현해 전략 코드와
+> sync가 필요했고, 실전략이 지원하지 않는 상대 tp/sl 축을 탐색했다. 필요 시 git 이력 참조.
 
 ## 새 전략 백테스트 추가
 
