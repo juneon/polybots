@@ -9,18 +9,18 @@ __pycache__/
 # IDE-generated mirror of CLAUDE.md — never commit
 AGENTS.md
 
-# runtime artifacts
-logs/
-state/
-sim_account*.json
-backtest/results/
+# volatile runtime — machine-local (heartbeat/stop files/stdout logs)
+logs/ctl/
 
-# backtest raw data (large; regenerated from live runs' events.csv)
-backtest/data/
+# stray pre-migration sim accounts at root (current state lives in state/, tracked)
+/sim_account*.json
+
+# regenerable artifacts (rebuilt by backtest/data_prep.py)
+backtest/data/quotes_all.parquet
+
+# local-only
+configs/backups/
+.claude/settings.local.json
 
 # legacy checkouts (own git repos, kept as archive)
 archive/
-
-# local-only claude settings
-.claude/settings.local.json
-configs/backups/

@@ -1,0 +1,12 @@
+{
+  "cash": 5.9,
+  "position": null,
+  "state": {
+    "slug_idx": 1,
+    "entries": {
+      "up": 0,
+      "down": 1
+    },
+    "tp_done": true
+  }
+}
