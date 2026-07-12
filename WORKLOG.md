@@ -313,6 +313,14 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - `.pytest_cache/` gitignore. 레거시 `SPECv2.1.md` 2부는 폴더째 정리(#7) 때 함께 처분
 - 후속: SPEC §2를 "구조도" 챕터로 확장 — 2.1 폴더 지도(주석 트리) · 2.2 실행 단위 3종(봇/UI/backtest)과 파일 결합 관계도 · 2.3 기존 이벤트 스트림
 
+### 2026-07-12 (같은 세션) — 멀티 머신 작업 준비: 데이터의 git 편입 (결정 D20)
+
+**D20 — git 데이터 정책**: 수집 자산은 track, 휘발성·재생성물·비밀은 ignore.
+- **track**: `logs/*.csv`(P0 수집분 — 세션 종료마다 스냅샷 커밋), `state/`(sim 계좌), `backtest/data/*_events.csv`(대체 불가 원본, 82MB→git 압축 3.3MB), `backtest/results/`(결과 아카이브)
+- **ignore**: `logs/ctl/`(heartbeat·stop·stdout — 머신 로컬), `quotes_all.parquet`(data_prep으로 재생성), 루트 `sim_account*.json` 잔재, `.env`(불변 — 절대 커밋 금지), `configs/backups/`, `archive/`
+- **멀티 머신 규칙: 수집(sim)은 한 번에 한 머신에서만.** 떠나기 전 `봇 정지 → 스냅샷 커밋 → push`, 도착해서 `pull → 봇 시작`. logs는 append 파일이라 양쪽 동시 수집 시 git 병합 불가.
+- 회사 PC 최초 셋업: `git clone` → `pip install -r requirements.txt` → `python -m pytest tests/ -q`(53개) → `python -m ui.server`. live 자격증명(.env)은 git 밖 — sim/백테스트/UI에는 불필요.
+
 ### 2026-07-12 (같은 세션) — 구조 개선 #3~#6 완료 (감사 항목 전부 소진, #7·#8만 잔류)
 
 | # | 구현 |
