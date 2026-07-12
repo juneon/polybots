@@ -48,6 +48,28 @@
 
 ---
 
+## 로드맵 (정본 — 구 STATUS.md P0~P4 흡수, 2026-07-12)
+
+- **P0 — sim 수집** (진행 중): threshold sim으로 slug 30개+ 누적 (현재 4). 사용자 터미널에서 상시 가동, 연속일 필요 없음
+- **P1 — 백테스트 현실화** ✅ (2026-07-07): 비용 캘리브레이션(haircut 0.01 / p_fail 0.2) — 엔진이 3/3 실거래를 ±$2.6로 재현. 판정: MA 라이브 부적합, threshold 주력 후보(tp 0.99)
+- **P2 — 실행 품질** (live 손실 요인 제거, live 재개 전 필수 — core 작업):
+  - [ ] `sell_dust:below_step` 대응 — 리팩토링 반영분(청산 실패 시 다음 tick 재발행) 라이브 검증
+  - [ ] exit_tp도 스윕 경로로 (3/3에서 FAK no-match로 익절 실패 1건)
+  - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리
+  - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
+- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 로그 로테이션, 패키징(구조 감사 #8)
+- **P4 — 확장**: ETH/SOL/XRP(config slug prefix만 교체) · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 레거시 3폴더 정리(구조 감사 #7)
+- **live 재개 기준 (불변)**: sim slug 30+ 무결 + 현실화 백테스트 기대값 플러스 + P2 완료 → 소액부터. UI로는 Phase E의 3단계 가드 경유
+
+### 참고 — 2026-03-03 라이브 세션 (P2의 근거, 구 STATUS §1 요약)
+
+- MA breakout 4시간, 15 slugs: 137주문(체결 122/거부 15), **실현 −$27.30**, slug 3승 12패
+- 거부 15건 = `sell_dust:below_step` ×14 (잔고 반영 지연 → **미청산 36.5tk 만기 노출**의 직접 원인) + FAK no-match ×1 (exit_tp 실패)
+- 무비용 백테스트 +$81.66 vs 라이브 −$27.30 갭 → P1 현실화의 동기. 주요인: market 매도 = bid−slippage(0.05)의 이중 부담, 평균 매수 0.290 vs 매도 0.272
+- polybots_pre 라이브는 1왕복(−$0.74)뿐 — 표본 부족으로 평가 불가
+
+---
+
 ## 진행 로그
 
 ### 2026-07-11 — 세션 시작, 계획 수립 + Phase A 완료
@@ -280,3 +302,12 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 **검증 (전부 통과)**: py_compile 2파일 + JS node --check + 기존 49 tests 통과 유지 / E2E(테스트 포트 8788): engine job 등록→queued→running→done(rc 0), 로그 tail 스트리밍, 아카이브 생성(threshold +28.50 재현), stale=true 정확(수집분이 parquet보다 최신), 400 거부 2종(kind/strategy), **큐 직렬화 확인**(2번째 job이 queued로 대기 후 순차 실행), 페이지 200
 
 **미결**: 사용자 브라우저에서 탭 실제 조작 확인(서버 `python -m ui.server` 후 Backtest 탭) — API/JS는 검증됐으나 렌더링은 육안 확인 권장
+
+### 2026-07-12 (같은 세션) — 문서 체제 정리: 5문서로 통합, 숨은 .md 전부 처분
+
+**결정 D19**: 문서는 **CLAUDE / SPEC / WORKLOG / backtest README / DOCS(문서 맵, 신규)** 5개가 전부. 새 .md를 만들기 전에 DOCS.md의 표에 자리가 있는지 확인. 로드맵 정본은 WORKLOG 한 곳 (STATUS·SPEC §10·ANALYSIS §6에 3중 분산돼 있던 것 해소).
+
+- 삭제: `ANALYSIS.md`(히스토리→git), `STATUS.md`(로드맵·3/3 세션 요약을 위 "로드맵" 섹션으로 흡수 후), `REPORT.html`(낡은 프레젠테이션판), `AGENTS.md`(IDE 미러 — gitignore 등록으로 재발 차단)
+- 숨은 문서 발굴: `polybots_pre/backup/`의 19개(SPEC v0.1~v2.0 초안 등, 레거시 git에도 없던 untracked) → **pre git 스냅샷 `5a84048`로 보존 후 디스크 삭제**
+- `SPEC.md` v3.1로 현행화: §9 엔진 통일 반영, §10을 Control UI·tests로 교체, 로드맵은 WORKLOG 포인터화, §5에 core/control.py 추가
+- `.pytest_cache/` gitignore. 레거시 `SPECv2.1.md` 2부는 폴더째 정리(#7) 때 함께 처분

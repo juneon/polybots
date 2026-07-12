@@ -1,7 +1,8 @@
-# SPEC v3.0 — polybots 통합 명세
+# SPEC v3.1 — polybots 통합 명세
 
 > v2.1까지의 단일-프로젝트 구조(polybots_pre/polybots_MA)를 공유 코어 + 전략 플러그인 모노레포로 통합.
-> 이전 명세: 각 레거시 폴더의 SPECv2.1.md 참조 (단, MA 폴더의 SPEC은 낡은 문서였음 — 본 문서가 현행).
+> v3.1 (2026-07-12): backtest 엔진 통일(§9) · Control UI/tests 추가(§10) · 로드맵을 WORKLOG로 이관(§11).
+> 이 문서는 **시스템의 현재 모습**만 기술한다. 결정/진행/로드맵은 WORKLOG.md, 문서 맵은 DOCS.md.
 
 ## 1. Goal
 
@@ -100,7 +101,8 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 | `core/account_live.py` | 실계좌 상태. dust 임계, 래깅 가드, slug 경계 reconcile | trade(filled), CLOB 잔고 | 상태 |
 | `core/logger.py` | CSV 기록. **append 모드 + run_id** | event/intent/trade, account | logs/*.csv |
 | `core/printer.py` | 사람이 읽는 tick 출력 (MA 등 전략 debug 포함) | quote_ev, account, strategy | stdout |
-| `core/runner.py` | 조립 + 라우팅 + CLI. KeyboardInterrupt 시 로그 정상 close | argv, config | — |
+| `core/runner.py` | 조립 + 라우팅 + CLI(`--run-id` 포함). KeyboardInterrupt 시 로그 정상 close | argv, config | — |
+| `core/control.py` | stop-file 감지 + heartbeat 원자적 기록 (UI 연동, CLI 단독 실행에도 무해) | run_id | `logs/ctl/<run_id>.status.json` |
 
 ## 6. 전략 명세
 
@@ -173,18 +175,18 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 - `trades.csv`: intent+trade 결합 1행. 즉시 flush.
 - `snapshots.csv`: filled 발생 tick의 계좌 스냅샷. 즉시 기록.
 
-## 9. Backtest
+## 9. Backtest (2026-07-12 엔진 통일)
 
-- `backtest/backtest.py` — MA 전략 그리드 서치 (`data/*_events.csv` 입력, `backtest/`에서 실행).
-- 전략 로직이 `strategies/ma_breakout.py`와 **별도 구현**이므로 전략 수정 시 동기화 필요 (알려진 부채 — §10).
-- 새 데이터 수집: 운영 실행의 `logs/events.csv`(logging.events=true)를 `backtest/data/`로 복사.
+- `backtest/engine.py`가 **유일한 엔진** — 실제 `strategies/` 코드를 on_event/on_trade 파이프라인 그대로 리플레이 + 비용 모델(BUY=intent가, SELL=bid−haircut, p_fail 확률 거부). `from engine import replay, prepare_slugs`.
+- `run_grid.py`(ma_breakout 그리드)와 `sweep_threshold.py`(threshold 스윕)는 engine.replay의 fan-out — **전략 로직 재구현 없음** (구 backtest.py는 폐기, git 이력 참조).
+- 모든 스크립트가 `--json <path>` 요약 출력 → UI Backtest 탭이 `backtest/results/`에 아카이브.
+- 파이프라인 절차 / 비용 캘리브레이션 / train-val 검증 규칙: `backtest/README.md`.
 
-## 10. 알려진 한계 / 로드맵 (Phase 3+)
+## 10. Control UI · tests (2026-07 추가)
 
-- [ ] tick당 HTTP 4회 순차 호출 — 병렬화 또는 WebSocket 전환 (1초 주기 안정화)
-- [ ] live SELL 스윕(최대 10초)이 메인 루프를 블로킹 — 스레드 분리
-- [ ] backtest가 전략 코드를 재구현 — 코어 전략 클래스 직접 리플레이로 통합
-- [ ] cash는 명목 흐름일 뿐 실잔고 검증 없음 — 주문 전 USDC 잔고 가드
-- [ ] slug를 로컬 시계로 계산 — 경계 404 폴백 없음
-- [ ] BUY 부분체결/미체결 잔류(GTC) 주문 추적 없음 (buy_inflight 래치로 중복만 방지)
-- [ ] ver4(ETH/SOL/XRP 확장), ver5(Binance ATR 전략)는 전략 플러그인 + config 추가로 대응
+- `ui/` — 로컬 웹 대시보드 (FastAPI, **127.0.0.1:8787 전용**, `python -m ui.server`): 봇 프로세스 제어(stop-file/heartbeat = core/control.py 경유, 크래시 격리), 성과 집계(trades.csv), config 편집(검증+자동 백업), 백테스트 job 실행/아카이브/비교. **live 시작은 Phase E까지 서버가 403 거부. 서버는 .env를 절대 읽지 않음.**
+- `tests/` — pytest 단위 테스트 (전략 체결 피드백 불변식, account SOT, logger append, 성과 집계, config 검증, 엔진 비용 모델). `python -m pytest tests/ -q`.
+
+## 11. 알려진 한계 / 로드맵
+
+정본은 `WORKLOG.md`의 "로드맵" 섹션 (P0 수집 → P2 실행품질 → P3 인프라 → P4 확장, live 재개 기준 포함).

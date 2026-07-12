@@ -4,6 +4,10 @@
 # python
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# IDE-generated mirror of CLAUDE.md — never commit
+AGENTS.md
 
 # runtime artifacts
 logs/
