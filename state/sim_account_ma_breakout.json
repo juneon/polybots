@@ -1,11 +1,11 @@
 {
-  "cash": 2.3000000000000003,
+  "cash": 32.759999999999984,
   "position": null,
   "state": {
-    "slug_idx": 3,
+    "slug_idx": 23,
     "entries": {
-      "up": 0,
-      "down": 5
+      "up": 2,
+      "down": 0
     },
     "tp_done": false
   }

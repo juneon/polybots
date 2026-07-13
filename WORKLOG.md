@@ -50,14 +50,14 @@
 
 ## 로드맵 (정본 — 구 STATUS.md P0~P4 흡수, 2026-07-12)
 
-- **P0 — sim 수집** (진행 중): threshold sim으로 slug 30개+ 누적 (현재 4). 사용자 터미널에서 상시 가동, 연속일 필요 없음
+- **P0 — sim 수집** ✅ (2026-07-13): threshold 33 slugs 수집 완료 (집 12 + 회사 21, 목표 30 초과). 단 재평가에서 신규 구간 음수 → 수집 연장/파라미터 반영 판단 대기 (진행 로그 2026-07-13 참조)
 - **P1 — 백테스트 현실화** ✅ (2026-07-07): 비용 캘리브레이션(haircut 0.01 / p_fail 0.2) — 엔진이 3/3 실거래를 ±$2.6로 재현. 판정: MA 라이브 부적합, threshold 주력 후보(tp 0.99)
 - **P2 — 실행 품질** (live 손실 요인 제거, live 재개 전 필수 — core 작업):
   - [ ] `sell_dust:below_step` 대응 — 리팩토링 반영분(청산 실패 시 다음 tick 재발행) 라이브 검증
   - [ ] exit_tp도 스윕 경로로 (3/3에서 FAK no-match로 익절 실패 1건)
   - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
-- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거)
+- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거) · **data_prep의 live_mar03 소스를 backtest/data/로 승격** (gitignored archive/ 의존이라 신규 머신에서 val 데이터가 조용히 누락 — 2026-07-13 회사 PC에서 발견. 파일명은 `*_events.csv` 글롭과 충돌하지 않게 할 것)
 - **P4 — 확장**: ETH/SOL/XRP·5분/1시간 마켓 (config slug prefix/interval 교체) — **선행: 봇 정체성을 "전략"→"전략@마켓"으로** (config 파일명·sim 계좌 파일·procman 키·run_id·metrics 집계 5곳이 전략 단위라 같은 전략 2마켓 동시 실행 시 충돌, 2026-07-12 심층 리뷰) · train/val 소스명 하드코딩 정리 · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 아카이브 최종 처분(구조 감사 #7)
 - **live 재개 기준 (불변)**: sim slug 30+ 무결 + 현실화 백테스트 기대값 플러스 + P2 완료 → 소액부터. UI로는 Phase E의 3단계 가드 경유
 
@@ -332,3 +332,31 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 | #6 | `core/contracts.py` — Executor/Account `@runtime_checkable` Protocol. Sim/Replay 페어 conformance 테스트 포함 |
 
 **검증**: 테스트 53개(신규 4: 계약 준수 2 + 배포 config 유효성 + 잘못된 값 검출) 전부 통과 / bad-config runner exit 1 / ma_breakout sim 스모크 — stop-file graceful 종료(rc 0), state/ 이관 확인. **주의: 실행 중이던 threshold sim(사용자 터미널)은 구코드라 루트 파일에 계속 씀 — 다음 재시작 때 자동 이관되고 그동안 UI 폴백이 커버**
+
+### 2026-07-13 — 회사 PC 온보딩 + P0 수집 완료(33 slugs) + 재평가 (멀티 머신 첫 사이클)
+
+**회사 PC 셋업** (D20 절차 실행):
+- clone 정리: 실수로 옛 로컬 폴더 안에 중첩 clone됐던 것을 `Desktop\polybots`로 정착. 옛 폴더는 `Desktop\polybots_old` 백업, 레거시 3폴더는 백업에서 `archive/`로 복원 (집과 동일 레이아웃)
+- `pip install -r requirements.txt` → tests **52 passed / 1 skipped** (skip = parquet 부재 리플레이 테스트, data_prep 후 실행 가능 — D20 예상대로)
+- `.env`는 이 머신에 새 clone 기준 없음 → sim/백테스트/UI에 불필요 (live 전 별도 이관 필요)
+
+**P0 수집 완료**:
+- threshold sim 12 → **33 slugs** (목표 30 초과). UI Control 탭으로 시작/정지 — Phase A 원격 머신 실사용 검증 겸. 정지는 stop_all API, 두 봇 모두 forced=false·rc 0 그레이스풀, 미청산 포지션 없음
+- ma_breakout sim이 병행 수집됨(동일 33 slugs) — 시세 이중 기록(P3 recorder 이슈)이 실제 발생, 수집 데이터는 (slug,tick) dedup으로 무해하나 events.csv 크기만 증가
+
+**발견 — data_prep 머신 이식성 (P3에 항목 추가)**:
+- 첫 재평가에서 `live_mar03` per_source가 통째로 소실 — 원인: 소스 경로가 gitignored `archive/polybots_MA/logs/events.csv` 의존이라 신규 머신에서 **val 데이터가 조용히 누락**됨. 백업에서 archive/ 복원으로 해결 후 전체 재실행 (mar03 누락 상태의 결과 아카이브 3건은 오판 방지 위해 삭제)
+
+**재평가** (sim_new 34 slugs 반영, 비용 모델 기본 haircut 0.01/p_fail 0.2 — UI Backtest 탭 job 경유):
+| 지표 | 어제 (07-12, sim 4 slugs) | 오늘 (07-13, sim 34 slugs) |
+|---|---|---|
+| engine 현 config 전체 PnL / score | +28.50 / 22.65 | **+15.60 / 5.78** |
+| per_source | janfeb +24.15 · mar03 +4.35 · sim 0.0 | janfeb +24.15 · mar03 +4.35 · **sim_new −12.9** |
+| sweep 1위 | tp 0.99 (score 22.65) | **tp 0.99 유지** (score 5.78, val mar03 +4.35 통과). 현 config(tp 0.98)는 2위(3.36, val +2.74) |
+
+**판정**: live 재개 기준의 "기대값 플러스"는 **전체 기준으로는 충족**(+15.60, val 플러스, 1위 파라미터 기존 판정 유지). 그러나 **신규 수집 구간(7/12~13)에서 −12.9로 음수** — 최근 시장에서 엣지 약화 신호. 표본이 작아(34 vs janfeb 189) 확정은 이르다. 다음 세션 선택지:
+- (a) 수집 연장(60+ slugs)으로 sim_new 표본 확충 후 재판정 ← 보수적 기본안
+- (b) sweep 1위(tp 0.99)만 config 반영하고 sim 관찰 지속
+- (c) 병행: P2 실행 품질 착수 (수집과 독립적인 live 코드 작업)
+
+**git**: 수집 스냅샷(logs/state) + 결과 아카이브(backtest/results) + 본 로그 커밋/push — 집에서 pull로 이어받기.

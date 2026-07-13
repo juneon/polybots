@@ -24,3 +24,6 @@ configs/backups/
 
 # legacy checkouts (own git repos, kept as archive)
 archive/
+
+# snapshot report (D19: not part of the 5-doc system, regenerate on demand)
+REPORT.html
