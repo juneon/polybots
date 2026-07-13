@@ -620,7 +620,7 @@ async function saveConfig() {
 const BT_DESC = {
   data_prep: "모든 이벤트 로그(수집분 포함)를 data/quotes_all.parquet 하나로 정규화한다. 수집 후 재평가 전에 필수.",
   engine: "실제 strategies/ 코드를 비용 모델(haircut·p_fail)로 리플레이 — 판단 기준이 되는 수치.",
-  sweep_threshold: "threshold 파라미터 72콤보 스윕 (engine 기반, ~2분).",
+  sweep_threshold: "threshold 파라미터 스윕 — 축은 backtest/sweep_threshold.py 상단 상수 (engine 기반, 콤보당 ~1.5초).",
   run_grid: "ma_breakout 3,600콤보 그리드 (engine fan-out, 풀 그리드 ~10분+). quick은 16콤보 스모크.",
 };
 let btSelectedJob = null;

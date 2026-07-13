@@ -7,7 +7,10 @@
 ```
 ① 데이터 수집     운영/sim 실행 시 logging.events=true → logs/events.csv 축적
 ② 데이터 통합     python data_prep.py
-                  → 모든 소스를 data/quotes_all.parquet로 정규화 (slug,tick 중복 제거)
+                  → 모든 소스를 data/quotes_all.parquet로 정규화
+                  (시간축은 time_left_sec — tick은 run 전역 카운터라 다중 run/재시작 시
+                   순서가 깨짐(2026-07-13). dedup·정렬 모두 time_left 기준.
+                   sim 수집분은 UTC 일자별 소스로 분리: sim_260712, sim_260713, ...)
 ③ 폭넓은 탐색     python run_grid.py            (ma_breakout 그리드, 3,600조합 — 엔진 fan-out)
                   python sweep_threshold.py     (threshold 스윕 — 엔진 직접 호출)
 ④ 정밀 검증       python engine.py --strategy <name> --set key=val ...
@@ -42,7 +45,7 @@
 | `data_prep.py` | 이벤트 CSV들 → `data/quotes_all.parquet` 통합 |
 | `run_grid.py` | ma_breakout 그리드 = engine.replay를 프로세스풀로 fan-out (train/val 분리, 헤어컷 민감도, `--quick` 스모크) |
 | `sweep_threshold.py` | threshold 스윕 = engine.replay 직접 호출 |
-| `data/` | 원본 이벤트 CSV + 통합 parquet (gitignore) |
+| `data/` | 원본 이벤트 CSV(git 추적: `*_events.csv` = 1~2월 그리드, `mar03_live.csv` = 3/3 라이브 승격본) + 통합 parquet(gitignore, 재생성 가능) |
 
 > `backtest.py`(무비용 벡터화 그리드)는 2026-07-12 폐기 — MA 로직을 재구현해 전략 코드와
 > sync가 필요했고, 실전략이 지원하지 않는 상대 tp/sl 축을 탐색했다. 필요 시 git 이력 참조.

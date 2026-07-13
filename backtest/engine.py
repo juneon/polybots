@@ -128,7 +128,9 @@ def prepare_slugs(quotes: pd.DataFrame) -> List[tuple]:
     """
     out = []
     for slug, s in quotes.groupby("slug", sort=False):
-        out.append((slug, s["source"].iloc[0], s.sort_values("tick")))
+        # sort on ts (built from time_left_sec) — tick is a per-run counter and
+        # interleaves wrongly when two runs recorded the same slug (2026-07-13)
+        out.append((slug, s["source"].iloc[0], s.sort_values("ts")))
     return out
 
 
@@ -228,7 +230,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--data", default="data/quotes_all.parquet")
     ap.add_argument("--json", default=None, metavar="PATH",
-                    help="also write the full result dict as JSON (machine-readable, for UI jobs)")
+                    help="result JSON path (default: results/<ts>_engine_<strategy>.json)")
+    ap.add_argument("--no-save", action="store_true", help="print only, skip the results/ archive")
     args = ap.parse_args()
 
     cfg_path = Path(args.config) if args.config else ROOT / "configs" / f"{args.strategy}.json"
@@ -254,15 +257,19 @@ def main():
           f"| slug W/L {r['wins']}/{r['losses']}")
     print(f"per source: {r['per_source']}")
 
-    if args.json:
+    json_path = args.json
+    if json_path is None and not args.no_save:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        json_path = str(Path(__file__).parent / "results" / f"{ts}_engine_{args.strategy}.json")
+    if json_path:
         out = {
             "kind": "engine", "strategy": args.strategy, "overrides": args.set,
             "cost_model": {"haircut": args.haircut, "p_fail": args.pfail, "seed": args.seed},
             "data": args.data, "elapsed_sec": round(dt, 2), **r,
         }
-        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.json).write_text(json.dumps(out, indent=2), encoding="utf-8")
-        print(f"json: {args.json}")
+        Path(json_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(json_path).write_text(json.dumps(out, indent=2), encoding="utf-8")
+        print(f"json: {json_path}")
 
 
 if __name__ == "__main__":
