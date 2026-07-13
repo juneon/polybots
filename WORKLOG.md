@@ -57,6 +57,7 @@
   - [ ] exit_tp도 스윕 경로로 (3/3에서 FAK no-match로 익절 실패 1건)
   - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
+  - [ ] **sim 이월 포지션 정산 처리** — 런/slug 종료 시 미청산 포지션이 정산 없이 이월되어 다음 slug의 (다른 토큰) 가격으로 청산됨. 실측 3건, 장부 왜곡 MA +5.3 과대 / threshold −3.5~−8.8 과소 (2026-07-14 리뷰). 종료 시 마지막 bid로 강제 장부 마감 or 이월 slug 불일치 시 매도 차단
 - **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거) · ~~data_prep의 live_mar03 소스를 backtest/data/로 승격~~ ✅ 2026-07-13 집: `backtest/data/mar03_live.csv`로 승격(git 추적), archive/ 의존 제거
 - **P4 — 확장**: ETH/SOL/XRP·5분/1시간 마켓 (config slug prefix/interval 교체) — **선행: 봇 정체성을 "전략"→"전략@마켓"으로** (config 파일명·sim 계좌 파일·procman 키·run_id·metrics 집계 5곳이 전략 단위라 같은 전략 2마켓 동시 실행 시 충돌, 2026-07-12 심층 리뷰) · train/val 소스명 하드코딩 정리 · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 아카이브 최종 처분(구조 감사 #7)
 - **live 재개 기준 (불변)**: sim slug 30+ 무결 + 현실화 백테스트 기대값 플러스 + P2 완료 → 소액부터. UI로는 Phase E의 3단계 가드 경유
@@ -407,3 +408,17 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - 실행 취약점 메모: tp 0.98은 FAK no-match 이력(P2 exit_tp 스윕 항목)과 접점 — live 전 P2 필수 재확인
 
 **수집 재시작**: 구 run(20260713_233324) stop-file 그레이스풀 종료(rc 0) → 새 config로 `20260713_235323_threshold_sim` 가동. 테스트 53개 통과. UI sweep 설명 문구의 "72콤보" 하드코딩도 정리
+
+### 2026-07-14 — 실매매 리뷰(trades.csv) + sim 이월 버그 발견 + 수집분 전용 최적화 → REPORT.html
+
+**실제 sim 매매 리뷰** (trades.csv 202건, 계좌 타임라인 기준 라운드트립 재구성):
+- MA: 70rt +30.36 (승률 15.7% 복권형 — TP 8건 +50.3이 전부, MA크로스 62건 −19.9) / threshold: 31rt −16.30 (손절 25건 중 휩쏘 16건)
+- **버그 발견 — sim 이월 포지션**: 런/slug 종료 시 포지션이 정산 없이 이월 → 다음 slug의 다른 토큰 가격으로 청산. 3건 실측, 보정 시 MA ≈+25.1 / threshold ≈−12.8 (P2에 항목 추가)
+- 카운터팩추얼: 청산 규칙 제거는 양쪽 다 손해 (MA 시간청산이 +18.0 방어, threshold 손절 순효과 +3.4)
+
+**수집분(34 slugs) 전용 최적화** (threshold 144 + MA 120조합, 비용 반영):
+- 현 config 기준선: **MA +19.06 (score 15.73) vs threshold −5.10** — 최근 레짐에서 MA 우세, threshold는 최적 조합(0.85/0.10/0.99/t180)조차 +1.0
+- 단 MA sim 1위(cap0.7/ma600/c3/tp0.99)는 janfeb −28.9로 붕괴 = **레짐 뒤집힘**. 전 구간 생존형은 cap0.7/ma600/c0/tp없음(전체 +27.7) — MA 재검토 시 1순위
+- 판단: MA config 즉시 교체는 보류(34 slugs 표본). MA sim 재가동은 recorder 분리(P3)와 엮어 결정
+
+**REPORT.html** (루트, gitignore/D19): 위 전부 + 차트(누적 PnL·slug별·카운터팩추얼)로 재생성 가능한 상세 보고서. 생성 스크립트는 세션 스크래치(analyze_actual/optimize_sim/build_report.py)
