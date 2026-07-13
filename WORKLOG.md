@@ -57,7 +57,7 @@
   - [ ] exit_tp도 스윕 경로로 (3/3에서 FAK no-match로 익절 실패 1건)
   - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
-- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거) · **data_prep의 live_mar03 소스를 backtest/data/로 승격** (gitignored archive/ 의존이라 신규 머신에서 val 데이터가 조용히 누락 — 2026-07-13 회사 PC에서 발견. 파일명은 `*_events.csv` 글롭과 충돌하지 않게 할 것)
+- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거) · ~~data_prep의 live_mar03 소스를 backtest/data/로 승격~~ ✅ 2026-07-13 집: `backtest/data/mar03_live.csv`로 승격(git 추적), archive/ 의존 제거
 - **P4 — 확장**: ETH/SOL/XRP·5분/1시간 마켓 (config slug prefix/interval 교체) — **선행: 봇 정체성을 "전략"→"전략@마켓"으로** (config 파일명·sim 계좌 파일·procman 키·run_id·metrics 집계 5곳이 전략 단위라 같은 전략 2마켓 동시 실행 시 충돌, 2026-07-12 심층 리뷰) · train/val 소스명 하드코딩 정리 · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 아카이브 최종 처분(구조 감사 #7)
 - **live 재개 기준 (불변)**: sim slug 30+ 무결 + 현실화 백테스트 기대값 플러스 + P2 완료 → 소액부터. UI로는 Phase E의 3단계 가드 경유
 
@@ -360,3 +360,50 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - (c) 병행: P2 실행 품질 착수 (수집과 독립적인 live 코드 작업)
 
 **git**: 수집 스냅샷(logs/state) + 결과 아카이브(backtest/results) + 본 로그 커밋/push — 집에서 pull로 이어받기.
+
+### 2026-07-13 (집) — 시간축 버그 수정 + 손실 원인 규명(휩쏘 71%) + 수집 재개
+
+**회사 결과 재현**: pull 후 data_prep→engine→sweep 전부 재실행 — 소수점까지 일치 (+15.60 / 5.78 / sim −12.9). 테스트 53개 통과.
+
+**버그 발견/수정 — (slug,tick) dedup은 무해하지 않았다**:
+- tick은 run 전역 카운터라, 봇 2개 동시 기록 or 재시작 시 같은 slug 안에서 tick 범위가 어긋남. (slug,tick) dedup+정렬 결과 **sim 34개 중 31개 slug의 시계열이 비단조**(4개는 심각 — 예: 1783863900은 후반부(tick 1-465)가 전반부(tick 744-897)보다 앞에 정렬됨)
+- 수정: data_prep dedup/정렬을 **time_left_sec 기준**으로, engine prepare_slugs 정렬을 ts 기준으로. 수정 후 비단조 slug 0
+- 영향: sim −12.9 → **−13.2** (오염이 손실을 부풀린 게 아니었음 — 손실은 실제)
+
+**손실 원인 규명 (숫자가 아니라 "왜")**:
+- 가설 "수집 중단 시 강제청산이 극단 손실을 만든다" → **기각**: truncated slug 6개 중 포지션 보유 중 끊긴 건 1건뿐, 영향 +0.3
+- 실제 원인: sim 손실 전부 **정상 stop-loss** (21건 −22.0). 그중 **15건(71%)이 휩쏘** — 손절 후 해당 사이드가 0.99로 정산 (홀드했으면 +23.7). 나머지 6건은 진짜 세이브 (홀드 시 −48.9 → −6.1로 방어). 순효과: 손절(−22.0)이 무손절 홀드(−25.2)보다 근소 우위
+- 해석: 최근 시장은 slug 중반 변동성이 커서 favorite가 0.06 이상 출렁였다 회복하는 패턴 빈발
+
+**데이터 셋팅 (일자별)**:
+- data_prep이 sim 수집분을 UTC 일자별 소스로 분리 (`sim_260712`, `sim_260713`, ...) → engine per_source·sweep에 일자별 PnL 자동 표시 (sweep에 `sim` 합계 컬럼 추가)
+- live_mar03을 `backtest/data/mar03_live.csv`로 승격 (P3 항목 완료, archive/ 의존 제거)
+- sweep의 "current config" 하드코딩(0.98) 제거 — configs/threshold.json에서 읽음. **주의: config tp는 P1 때 이미 0.99로 반영돼 있었음** (14ba4a7) — 어제 "현 config 2위(0.98)"는 이 낡은 라벨이 만든 오해
+
+**클린 데이터 재스윕 (72조합)**:
+| 조합 | pnl | score | janfeb | mar03 | sim |
+|---|---|---|---|---|---|
+| **0.80/0.06/0.99/0.90 (현 config)** | 15.30 | **5.33 (1위)** | 24.15 | +4.35 | −13.20 |
+| 0.85/0.10/0.99/0.95 | 9.24 | 2.89 | 16.04 | −1.79 | **−5.01** |
+- 현 config가 종합 1위 유지. 단 sim 구간은 0.85/0.10 계열(넓은 손절+높은 진입)이 손실 60% 축소 — 휩쏘 분석과 일치. **어느 조합도 sim 양수는 없음** → 파라미터 교체보다 표본 확충이 우선 (선택지 (a) 채택)
+- 수집 재개: threshold sim 단독 가동 (ma_breakout 병행 없이 — 시세 이중 기록 회피)
+
+### 2026-07-13 (집, 이어서) — 백테스트 환경 정비 + t_enter 축 확장 스윕 + config 교체(0.85/0.12/0.98)
+
+**백테스트 환경 정비 (결과가 어디에 저장되는가)**:
+- 기존: UI job만 `backtest/results/`에 타임스탬프 아카이브, CLI는 engine=화면 출력뿐 / sweep=고정 파일명 덮어쓰기
+- 수정: **CLI도 기본 자동 아카이브** — engine은 `results/<ts>_engine_<전략>.json` (`--no-save`로 끔), sweep은 `results/<ts>_sweep_threshold.{csv,json}`. `--json`/`--out` 명시 시 그대로(UI 경로 호환)
+- sweep에 `val`(mar03+sim) 컬럼과 "TOP 5 by val" 출력 추가 — train(janfeb)만 좋은 과최적 조합 식별용
+
+**확장 스윕 (144조합)**: 기존 4축에 **t_enter(enter_time_left_sec: 450/300/180) 추가** — 휩쏘 후속(늦은 진입 = 출렁임 노출 시간 축소 가설). 결과:
+| 조합 | pnl | mdd | score | janfeb | mar03 | sim | val | W/L |
+|---|---|---|---|---|---|---|---|---|
+| **0.85/0.12/0.98/0.90/t450 (신규 1위)** | 11.79 | **−10.30** | **6.64** | 14.44 | −0.95 | **−1.70** | −2.65 | 109/65 |
+| 0.80/0.06/0.99/0.90/t450 (구 config, 2위) | 15.30 | −19.94 | 5.33 | 24.15 | +4.35 | −13.20 | −8.85 | 85/99 |
+- t_enter 늦추기(300/180)는 val은 좋아지나 janfeb 음수로 붕괴 → 과최적 판정, 탈락. t450 유지
+- 신규 1위는 총 pnl은 낮지만 MDD 절반·승률 46→63%·sim 손실 87% 축소. 새 파라미터 기준 sim_260713은 **+1.7 양전** (구 config −7.2)
+
+**config 교체**: configs/threshold.json → enter 0.85(re 동일)/stop_drop 0.12/tp 0.98 (cap 0.9·t450·나머지 불변). 엔진 재검증 = 스윕 row와 일치. 유의: mar03 −0.95로 근소 음수 — "val 음수 탈락" 규칙의 경계선. sim 표본(34)이 쌓이면 재판정
+- 실행 취약점 메모: tp 0.98은 FAK no-match 이력(P2 exit_tp 스윕 항목)과 접점 — live 전 P2 필수 재확인
+
+**수집 재시작**: 구 run(20260713_233324) stop-file 그레이스풀 종료(rc 0) → 새 config로 `20260713_235323_threshold_sim` 가동. 테스트 53개 통과. UI sweep 설명 문구의 "72콤보" 하드코딩도 정리
