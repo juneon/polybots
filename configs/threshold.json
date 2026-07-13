@@ -17,12 +17,12 @@
     "enter_time_left_sec": 450,
     "enter_deadline_left_sec": 80,
 
-    "enter_price_1": 0.8,
-    "enter_price_re": 0.8,
+    "enter_price_1": 0.85,
+    "enter_price_re": 0.85,
     "entry_cap": 0.9,
 
-    "stop_drop": 0.06,
-    "take_profit": 0.99,
+    "stop_drop": 0.12,
+    "take_profit": 0.98,
 
     "max_entries_per_slug": 2,
     "force_exit_left_sec": 50,
