@@ -16,6 +16,11 @@ Exit (holding; position truth = account.position), priority order:
   1. tleft <= force_exit_left_sec           -> exit_time
   2. bid >= take_profit                     -> exit_tp   (locks the slug: no more entries)
   3. bid <= entry - stop_drop               -> exit_sl   (enables one re-entry)
+     stop_confirm_sec > 0 delays the SL: the breach must hold CONTINUOUSLY for
+     that many seconds (tleft-based) before exit_sl fires; a recovery above the
+     stop level resets the clock. 0 = fire on the first breach tick (legacy).
+     Motivation: 71% of sim stops were whipsaws — a momentary dip through the
+     stop that recovered and settled at 0.99 (2026-07-13 analysis).
   All exit conditions are level-triggered, so they re-fire until the fill confirms.
 
 v2.2 correctness fixes vs the old polybots_pre version:
@@ -50,6 +55,7 @@ class ThresholdStrategy(BaseStrategy):
 
         # risk
         self.sl_drop = float(s["stop_drop"])
+        self.sl_confirm = int(s.get("stop_confirm_sec", 0))   # 0 = instant (legacy)
         self.tp = float(s["take_profit"])
         self.t_force = int(s["force_exit_left_sec"])
 
@@ -67,6 +73,7 @@ class ThresholdStrategy(BaseStrategy):
         self.n = 0              # confirmed entries this slug
         self.stopped = False    # a stop-loss fill confirmed -> re-entry allowed
         self.lock = False       # a TP fill confirmed -> slug hard-locked
+        self._sl_breach_tleft = None   # tleft when the current stop breach began
 
         # dd history: (tleft, bid) per side — unified time axis
         self._bid_hist = {"up": deque(), "down": deque()}
@@ -76,7 +83,8 @@ class ThresholdStrategy(BaseStrategy):
     def debug_state(self, slug: str) -> Dict[str, Any]:
         if slug != self.slug:
             return {}
-        return {"entries": self.n, "stopped": self.stopped, "tp_done": self.lock}
+        return {"entries": self.n, "stopped": self.stopped, "tp_done": self.lock,
+                "sl_breach_tleft": self._sl_breach_tleft}
 
     def on_trade(self, trade: Dict[str, Any]) -> None:
         if not isinstance(trade, dict) or trade.get("type") != "trade":
@@ -119,6 +127,7 @@ class ThresholdStrategy(BaseStrategy):
             self.n = 0
             self.stopped = False
             self.lock = False
+            self._sl_breach_tleft = None
             self._bid_hist["up"].clear()
             self._bid_hist["down"].clear()
 
@@ -144,11 +153,20 @@ class ThresholdStrategy(BaseStrategy):
                 return [make_intent("exit_tp", slug, tick, side, bid, self.qty, tleft)]
 
             if bid <= entry - self.sl_drop:
+                # whipsaw guard: the breach must hold for stop_confirm_sec
+                # (tleft-based dwell) before the stop fires; recovery resets it
+                if self.sl_confirm > 0:
+                    if self._sl_breach_tleft is None:
+                        self._sl_breach_tleft = tleft
+                    if (self._sl_breach_tleft - tleft) < self.sl_confirm:
+                        return []
                 return [make_intent("exit_sl", slug, tick, side, bid, self.qty, tleft)]
 
+            self._sl_breach_tleft = None   # recovered above the stop level
             return []
 
-        # ---- ENTRY ----
+        # ---- ENTRY (flat: no live breach to track) ----
+        self._sl_breach_tleft = None
         if self.lock or self.n >= self.maxn:
             return []
 

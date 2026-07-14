@@ -446,3 +446,17 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 **방향 (우선순위)**: ① sim 수집 계속 — **완전 slug 기준 목표 60** (현재 23, 게이지 30의 재해석) 후 재판정 ② P2 sim 이월 포지션 정산 수정 ③ 다음 ma 그리드에 cap 0.6~0.7 / ma_len 600 축 추가 ④ 재평가는 D23 절차로
 
 **산출물**: `reports/20260714_backtest_cleanup_{plan,result}.html` (result에 파라미터 민감도 차트 — plateau/스파이크 시각화), `backtest/results/20260714_165927_sweep_threshold.*` · `20260714_grid_ma.*`. 테스트 57개(+4: 완전성) 통과
+
+### 2026-07-14 (회사, 이어서) — 휩쏘 가드 `stop_confirm_sec` 구현 + 검증 (신규 유망 영역 발견, config는 유지)
+
+**변수 기여도 프로브** (완전 200, 현 config 기준 한 축씩): dd 재진입 필터 제거 시 +16.36→**−1.29** (이 전략의 최대 기여 변수 — 재진입은 dd 필터와 세트일 때만 플러스) · 재진입 제거(max_entries=1)는 train↑ oos↓ · force_exit 50→30 소폭 개선(+17.44, 단 P2 SELL 스윕 창과 상충으로 보류)
+
+**신규 파라미터**: `strategies/threshold.py`에 `stop_confirm_sec` — 손절 레벨 이탈이 N초(tleft 기준) **연속 유지**될 때만 exit_sl 발동, 회복 시 리셋. 기본 0(기존 동작, config 반영). 근거: 손실의 71%가 휩쏘(2026-07-13). 테스트 2개 추가(59 passed)
+
+**스윕 (576조합 = 기존 5축 × confirm 0/5/10/20)**:
+- 현 config(confirm0) 여전히 score 1위권(2/576) — 넓은 손절(0.12)에는 dwell이 **해로움** (진짜 붕괴 때 더 낮게 팔게 됨: confirm10에서 janfeb −2.86, MDD −24)
+- **핵심 발견: train·val 동시 양수 18개 중 15개가 confirm>0.** dwell은 "늦은 진입(t180)"과 조합될 때 작동 — 어제 t180이 janfeb 음수로 탈락했던 약점을 dwell이 고침
+- **신규 후보 영역: enter0.85 / stop 0.06~0.10 / tp0.98 / t180 / confirm 20~30** — 대표 (0.85/0.10/0.98/0.9/t180/c30): pnl +8.36, **MDD −6.8**(현행의 60%), W/L 62/19(승률 77%), janfeb +5.6 / mar03 +2.71 / sim +0.1 **전 소스 양수**. plateau: confirm축 20~30 평탄(c10 −4.4/c40 +3.5로 양끝 확인), stop_drop축 0.06~0.10 전부 양수, 이웃 both>0 = 4/8 (현 config 0/7 대비 최초의 "영역")
+- 한계: 거래 수가 적어(t180 창) 총이익은 현행의 절반, oos 표본 39 slugs는 여전히 소표본 → **D23 ③ 부분 통과로 config 교체는 보류**
+
+**결정**: config 유지(수집 표본 일관성). 후보 영역을 **차기 재판정(완전 sim 60개)의 1순위 비교 대상**으로 등록 — 재판정 시 현행 vs t180/c20~30 영역을 나란히 평가. `backtest/results/20260714_174129_sweep_threshold.*`

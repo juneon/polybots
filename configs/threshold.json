@@ -22,6 +22,7 @@
     "entry_cap": 0.9,
 
     "stop_drop": 0.12,
+    "stop_confirm_sec": 0,
     "take_profit": 0.98,
 
     "max_entries_per_slug": 2,

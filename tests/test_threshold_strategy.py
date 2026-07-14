@@ -99,6 +99,35 @@ def test_rejected_exit_does_not_mutate_state():
     assert st.stopped is False and st.lock is False
 
 
+def test_stop_confirm_dwell_delays_sl_and_recovery_resets():
+    cfg = {"strategy": dict(CFG["strategy"], stop_confirm_sec=10)}
+    st, acc = ThresholdStrategy(cfg), FakeAccount()
+    st.on_event(quote_ev(tick=1), acc)          # bind slug
+    acc.position = {"side": "up", "entry": 0.82, "qty_tokens": 10.0}
+
+    # breach begins (bid 0.76 <= 0.82-0.06) but dwell not yet satisfied -> no SL
+    assert st.on_event(quote_ev(tick=2, tleft=300, up=(0.76, 0.80)), acc) == []
+    assert st.on_event(quote_ev(tick=3, tleft=295, up=(0.76, 0.80)), acc) == []
+
+    # recovery above the stop level resets the dwell clock
+    assert st.on_event(quote_ev(tick=4, tleft=290, up=(0.80, 0.84)), acc) == []
+    assert st._sl_breach_tleft is None
+
+    # new breach: fires only once it has held for stop_confirm_sec
+    assert st.on_event(quote_ev(tick=5, tleft=280, up=(0.76, 0.80)), acc) == []
+    assert st.on_event(quote_ev(tick=6, tleft=271, up=(0.76, 0.80)), acc) == []   # 9s < 10s
+    out = st.on_event(quote_ev(tick=7, tleft=270, up=(0.76, 0.80)), acc)          # 10s
+    assert out and out[0]["kind"] == "exit_sl"
+
+
+def test_stop_confirm_zero_keeps_instant_sl():
+    st, acc = make()                             # CFG has no stop_confirm_sec -> 0
+    st.on_event(quote_ev(tick=1), acc)
+    acc.position = {"side": "up", "entry": 0.82, "qty_tokens": 10.0}
+    out = st.on_event(quote_ev(tick=2, up=(0.76, 0.80)), acc)
+    assert out and out[0]["kind"] == "exit_sl"
+
+
 def test_max_entries_per_slug_and_slug_reset():
     st, acc = make()
     st.on_event(quote_ev(tick=1), acc)

@@ -216,7 +216,8 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 청산 (보유 중, 우선순위순 — 모두 레벨 조건, 체결까지 자연 재시도):
 1. `tleft ≤ force_exit_left_sec`(50) → `exit_time`
 2. `bid ≥ take_profit`(0.98) → `exit_tp` — 체결 확정 시 slug hard-lock(재진입 금지)
-3. `bid ≤ entry − stop_drop`(0.06) → `exit_sl` — 체결 확정 시 재진입 허용 플래그
+3. `bid ≤ entry − stop_drop`(0.12) → `exit_sl` — 체결 확정 시 재진입 허용 플래그.
+   `stop_confirm_sec`(기본 0) > 0이면 이탈이 N초(tleft 기준) **연속 유지**될 때만 발동, 레벨 회복 시 타이머 리셋 (휩쏘 가드, 2026-07-14)
 
 ## 7. config 공통 키
 
