@@ -1,12 +1,12 @@
 {
-  "cash": 32.759999999999984,
+  "cash": 31.959999999999987,
   "position": null,
   "state": {
-    "slug_idx": 23,
+    "slug_idx": 2,
     "entries": {
-      "up": 2,
+      "up": 12,
       "down": 0
     },
-    "tp_done": false
+    "tp_done": true
   }
 }
