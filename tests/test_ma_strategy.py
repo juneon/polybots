@@ -85,6 +85,39 @@ def test_buy_inflight_blocks_stacking_and_rejected_buy_retries():
     assert feed(st, acc, 7, (0.43, 0.45))[0]["kind"] == "buy"
 
 
+def slope_strategy(slope_max=0.0, window=2):
+    st_cfg = dict(CFG["strategy"], entry_slope_max=slope_max, entry_slope_window_sec=window)
+    return MAStrategy({"strategy": st_cfg}), FakeAccount()
+
+
+def test_slope_filter_blocks_rising_ma_cross():
+    st, acc = slope_strategy()
+    # rising asks -> rising SMA; the cross-up at t5 comes through a rising MA
+    feed(st, acc, 1, (0.36, 0.38))
+    feed(st, acc, 2, (0.36, 0.38))
+    feed(st, acc, 3, (0.40, 0.42))
+    feed(st, acc, 4, (0.38, 0.40))                          # dip below the MA (re-arms)
+    assert feed(st, acc, 5, (0.43, 0.45)) == []             # cross-up, but slope > 0
+
+
+def test_slope_filter_allows_falling_ma_cross():
+    st, acc = slope_strategy()
+    # falling asks -> falling SMA; the bounce at t5 crosses a falling MA
+    feed(st, acc, 1, (0.55, 0.57))
+    feed(st, acc, 2, (0.50, 0.52))
+    feed(st, acc, 3, (0.44, 0.46))
+    feed(st, acc, 4, (0.40, 0.42))                          # below the MA
+    out = feed(st, acc, 5, (0.43, 0.45))                    # dip-bounce cross-up
+    assert out and (out[0]["kind"], out[0]["side"]) == ("buy", "up")
+
+
+def test_slope_filter_blocks_during_short_history():
+    st, acc = slope_strategy(window=10)
+    feed(st, acc, 1, (0.38, 0.40))
+    feed(st, acc, 2, (0.38, 0.40))
+    assert feed(st, acc, 3, (0.43, 0.45)) == []             # cross-up, history too short
+
+
 def test_slug_change_drops_stale_state():
     st, acc = make()
     feed(st, acc, 1, (0.38, 0.40))

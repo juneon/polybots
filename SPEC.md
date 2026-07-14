@@ -130,13 +130,14 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 ### 4.2 intent (strategy → executor)
 ```json
 {
-  "type": "intent", "kind": "buy | exit_tp | exit_sl | exit_time",
+  "type": "intent", "kind": "buy | exit_tp | exit_sl | exit_time | exit_expiry",
   "slug": "...", "tick": 0, "side": "up | down",
   "price": 0.58, "qty_tokens": 10.0, "time_left_sec": 0, "ts": 0
 }
 ```
 - quote 1개당 intent 0~1개. 우선순위: 청산 → 진입.
 - price: buy는 대상 side의 ask, exit는 보유 side의 bid.
+- `exit_expiry`는 전략이 아니라 **runner가 발행** (sim 전용 장부 마감 — §4.5).
 
 ### 4.3 trade (executor → account/strategy/logger)
 ```json
@@ -151,9 +152,22 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 
 ### 4.4 account (SOT, 읽기 전용 조회)
 - `cash: float` — 명목 현금 흐름(수수료 미포함, 잔고 검증 아님)
-- `position: dict | None` — `{"side", "entry", "qty_tokens", "notional_usd", ("token_id")}`
+- `position: dict | None` — `{"side", "entry", "qty_tokens", "notional_usd", "slug", ("token_id")}`
 - `state: dict` — `{"slug_idx", "entries": {"up","down"}, "tp_done"}`
+- sim: position의 `slug`는 매수 시점 slug — **교차 slug exit는 무시**(다른 slug의 가격으로 청산 금지, 2026-07-14 이전 state 파일엔 키 없음=가드 미적용)
 - live: `sync_position()`(매도 직전 잔고 정정, 0-래깅 가드), `reconcile_from_clob()`(slug 경계 정합화)
+
+### 4.5 sim 포지션 정산 (P2 이월 버그 수정, 2026-07-14)
+
+slug의 토큰은 해당 15분 마켓 밖에서 무가치하지만 계좌는 런/slug를 넘어 영속 —
+정산 없이는 이월 포지션이 다음 slug의 (다른 토큰) 가격으로 청산된다(실측 3건).
+runner가 sim 모드에서만 처리 (live는 `reconcile_on_slug`가 담당):
+
+| 시점 | 조건 | 처리 |
+|---|---|---|
+| slug 교체 / 런 종료 | 미청산 포지션 + 해당 slug의 마지막 quote 보유 | `exit_expiry`로 **마지막 bid에 강제 장부 마감** (만기 근처 bid≈정산가 — 엔진의 강제청산과 동일 모델). intent+trade가 로그에 남음 |
+| 시작 시(slug_init) | 이월 포지션의 slug ≠ 현재 slug (또는 slug 미기록) | **무현금 write-off** (`drop_position`) — 정산가를 알 수 없으므로 추정하지 않음. 해당 slug는 metrics에서 영구 '미청산'=실현 PnL 제외(D10) |
+| 시작 시(slug_init) | 이월 포지션의 slug = 현재 slug (크래시 후 같은 slug 재시작) | 포지션 유지 (계속 운용) |
 
 ## 5. 컴포넌트 명세 (IN/OUT)
 
@@ -187,6 +201,7 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 진입 (무포지션일 때만):
 - side의 **ask ≤ cap**(0.5)이고 ask가 ask-SMA(ma_len=300틱)를 **상향돌파**하는 tick에 매수.
 - 후보가 둘이면 더 싼 ask 선택. `tick_confirm > 0`이면 N틱 연속 유지 확인 후 진입.
+- `entry_slope_max`(옵션): 직전 `entry_slope_window_sec` 동안의 SMA 기울기가 이 값 이하일 때만 진입 — 0.0이면 **비상승 MA를 뚫는 딥 바운스 크로스만** 허용 (상승 MA 추격 진입이 독소 버킷: 2026-07-14 스크리닝). 이력 부족(워밍업) 시 진입 차단. null=비활성.
 - `no_entry_last_sec` 마감 구간, `cooldown_sec`(체결 후), `buy_inflight`(미확인 잔류 주문) 동안 진입 금지.
 
 청산 (보유 중):
@@ -199,6 +214,8 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 | `cap` | 진입 상한 (ask ≤ cap) | 0.5 |
 | `ma_len` | SMA 윈도우(tick). 워밍업 동안(≈ma_len초) 진입 불가 | 300 |
 | `tick_confirm` | 0=돌파 tick 진입, N=연속 N틱 확인 | 0 |
+| `entry_slope_max` | SMA 기울기 상한 — 이하일 때만 진입 (null=비활성) | null |
+| `entry_slope_window_sec` | 기울기 측정 구간(tick≈초) | 60 |
 | `cooldown_sec` | 매수 체결 후 재진입 금지 시간 | 0 |
 | `no_entry_last_sec` | 마감 N초 전 진입 금지 (null=비활성) | null |
 | `tp_abs` | 익절 bid 임계 (null=비활성) | 0.98 |

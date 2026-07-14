@@ -17,7 +17,7 @@ UNIT_INTERVAL_FIELDS = {
     "enter_price_1", "enter_price_re", "entry_cap", "stop_drop", "take_profit",
     "cap", "tp_abs", "slippage", "buy_cap", "sell_floor",
 }
-POSITIVE_FIELDS = {"qty_tokens", "ma_len", "timeout_sec", "interval_sec"}
+POSITIVE_FIELDS = {"qty_tokens", "ma_len", "timeout_sec", "interval_sec", "entry_slope_window_sec"}
 NONNEG_FIELDS = {"run_seconds", "max_slugs", "print_every", "max_entries_per_slug", "tick_confirm"}
 ENUM_FIELDS = {
     "loop_mode": ("one", "rolling", "duration"),

@@ -28,6 +28,13 @@ TRADES_CSV = ROOT / "logs" / "trades.csv"
 _EV_RUN_ID = EVENTS_FIELDS.index("run_id")
 _EV_TYPE = EVENTS_FIELDS.index("type")
 _EV_SLUG = EVENTS_FIELDS.index("slug")
+_EV_DATA = EVENTS_FIELDS.index("data")
+
+# slug completeness rule (D22) — keep in sync with backtest/data_prep.py
+# (equality is test-enforced; not imported so the server stays pandas-free)
+COMPLETE_FIRST_TLEFT = 870
+COMPLETE_LAST_TLEFT = 15
+COMPLETE_MAX_GAP_SEC = 60
 
 # below this remaining quantity a slug's round-trip counts as closed
 # (aligned with core.account DUST_CLEAR_TOKENS)
@@ -54,18 +61,63 @@ def mode_of_run_id(run_id: str) -> str:
     return tail if tail in _MODES else "?"
 
 
+_TLEFT_KEY = '"time_left_sec":'
+
+
+def _tleft_of(data: str) -> Optional[int]:
+    """Extract time_left_sec from a quote row's data JSON without a full parse
+    (events.csv is tens of MB; json.loads per row would dominate the startup scan)."""
+    i = data.find(_TLEFT_KEY)
+    if i < 0:
+        return None
+    j = i + len(_TLEFT_KEY)
+    end = data.find(",", j)
+    if end < 0:
+        end = data.find("}", j)
+    try:
+        return int(float(data[j:end]))
+    except (TypeError, ValueError):
+        return None
+
+
 class SlugCollection:
+    """Collection progress = COMPLETE slugs (D22), deduped across strategies.
+
+    Two bots recording the same slug is one collected slug — the asset is the
+    quote stream, not the run. Completeness mirrors data_prep.flag_complete
+    exactly: unique time_left values per slug, first >= 870, last <= 15, no
+    sorted-gap > 60s. Only slugs touched since the last poll are re-judged.
+    """
+
     def __init__(self, path: Path = EVENTS_CSV):
         self.path = path
         self._lock = threading.Lock()
         self._offset = 0
         self._tail = ""  # carry-over of an incomplete trailing line
-        self._slugs: Dict[str, Set[str]] = {}
+        self._slugs: Dict[str, Set[str]] = {}  # per-strategy observed slugs
+        self._cov: Dict[str, Set[int]] = {}    # slug -> unique time_left values seen
+        self._complete: Dict[str, bool] = {}
+        self._dirty: Set[str] = set()
 
-    def counts(self) -> Dict[str, int]:
+    def progress(self) -> Dict[str, Any]:
         with self._lock:
             self._ingest()
-            return {s: len(v) for s, v in self._slugs.items()}
+            for slug in self._dirty:
+                self._complete[slug] = self._judge(self._cov[slug])
+            self._dirty.clear()
+            return {
+                "complete": sum(self._complete.values()),
+                "total": len(self._cov),
+                "by_strategy": {s: len(v) for s, v in sorted(self._slugs.items())},
+            }
+
+    @staticmethod
+    def _judge(tlefts: Set[int]) -> bool:
+        t = sorted(tlefts, reverse=True)
+        gap = max((a - b for a, b in zip(t, t[1:])), default=0)
+        return (t[0] >= COMPLETE_FIRST_TLEFT
+                and t[-1] <= COMPLETE_LAST_TLEFT
+                and gap <= COMPLETE_MAX_GAP_SEC)
 
     def _ingest(self) -> None:
         try:
@@ -73,7 +125,8 @@ class SlugCollection:
         except OSError:
             return
         if size < self._offset:  # rotated/truncated -> full rescan
-            self._offset, self._tail, self._slugs = 0, "", {}
+            self._offset, self._tail = 0, ""
+            self._slugs, self._cov, self._complete, self._dirty = {}, {}, {}, set()
         if size == self._offset:
             return
 
@@ -94,12 +147,21 @@ class SlugCollection:
                 row = next(csv.reader(io.StringIO(line)))
             except (csv.Error, StopIteration):
                 continue
-            if len(row) <= _EV_SLUG or row[_EV_TYPE] not in ("slug_init", "slug_change"):
+            if len(row) <= _EV_DATA:
                 continue
-            run_id, slug = row[_EV_RUN_ID], row[_EV_SLUG]
+            etype, slug = row[_EV_TYPE], row[_EV_SLUG]
             if not slug:
                 continue
-            self._slugs.setdefault(strategy_of_run_id(run_id), set()).add(slug)
+            if etype == "quote":
+                t = _tleft_of(row[_EV_DATA])
+                if t is None:
+                    continue
+                seen = self._cov.setdefault(slug, set())
+                if t not in seen:
+                    seen.add(t)
+                    self._dirty.add(slug)
+            elif etype in ("slug_init", "slug_change"):
+                self._slugs.setdefault(strategy_of_run_id(row[_EV_RUN_ID]), set()).add(slug)
 
 
 # ---------------------------------------------------------------- PerfReport

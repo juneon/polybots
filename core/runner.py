@@ -70,6 +70,47 @@ def build_account_executor(mode: str, cfg: dict, pm: PolymarketAdapter, strategy
     return SimAccount(str(_sim_account_path(strategy_name))), SimExecutor(guard=True)
 
 
+def settle_open_position(account, last_quote_ev: dict, logger, reason: str) -> None:
+    """Sim book-close: force-exit the open position at the last seen bid.
+
+    The account persists across slugs/runs but a slug's tokens don't — without
+    this, a carried position got "sold" at the next slug's (different token)
+    price (P2 bug, 3 cases measured 2026-07-14). Near expiry the last bid ~=
+    settlement, mirroring the backtest engine's force-close.
+    """
+    pos = account.position or {}
+    side = str(pos.get("side", ""))
+    qty = account.position_qty()
+    book = (last_quote_ev.get("quote") or {}).get(side) or {}
+    bid = _f(book.get("bid"))
+    common = {
+        "kind": "exit_expiry",
+        "slug": str(last_quote_ev.get("slug", "")),
+        "tick": int(last_quote_ev.get("tick") or 0),
+        "side": side,
+        "ts": int(time.time()),
+        "reason": reason,
+    }
+    intent = {**common, "type": "intent", "qty_tokens": qty, "price": bid,
+              "time_left_sec": last_quote_ev.get("time_left_sec", "")}
+    trade = {**common, "type": "trade", "status": "filled",
+             "token_id": str(book.get("token_id") or ""),
+             "qty_tokens": qty, "fill_price": bid, "data": {}, "debug": {}}
+    logger.handle(intent)
+    logger.handle(trade)
+    account.apply(trade)
+    logger.snapshot(account, last_quote_ev)
+    log.info("settled open position at last bid: %s %.2ftk @ %.3f (%s, slug=%s)",
+             side, qty, bid, reason, common["slug"])
+
+
+def _f(x, default: float = 0.0) -> float:
+    try:
+        return default if x is None else float(x)
+    except (TypeError, ValueError):
+        return default
+
+
 def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
     pm = PolymarketAdapter(cfg)
     account, executor = build_account_executor(mode, cfg, pm, strategy_name)
@@ -81,6 +122,7 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
     cur_slug = None
     slug_idx = 0
     stop_reason = "loop_exit"
+    last_quote = None  # last quote event, prices the sim settlement at slug/run end
 
     try:
         for ev in slug_loop(pm, cfg):
@@ -95,6 +137,16 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
             if et in ("slug_init", "slug_change"):
                 slug = ev.get("slug")
                 if slug and slug != cur_slug:
+                    if mode == "sim" and account.has_position():
+                        # legacy positions (pre-2026-07-14 state files) carry no slug
+                        pos_slug = (account.position or {}).get("slug") or cur_slug
+                        if last_quote is not None and last_quote.get("slug") == pos_slug:
+                            settle_open_position(account, last_quote, logger, "slug_end")
+                        elif pos_slug != slug:
+                            # carried from a dead slug and no quote to price it:
+                            # write off instead of selling at another slug's price
+                            log.warning("dropping stale carried position (pos slug=%s, now=%s): %s",
+                                        pos_slug, slug, account.drop_position())
                     cur_slug = slug
                     slug_idx += 1
                     account.reset_state(slug_idx=slug_idx)
@@ -113,6 +165,7 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
                 ))
 
             elif et == "quote":
+                last_quote = ev
                 intents = strategy.on_event(ev, account)
                 filled = False
 
@@ -147,6 +200,14 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
         stop_reason = "keyboard_interrupt"
         log.info("interrupted by user — closing logs")
     finally:
+        # run-end book close (crash without finally = next start's stale-drop path)
+        if mode == "sim" and account.has_position() and last_quote is not None:
+            pos_slug = (account.position or {}).get("slug") or cur_slug
+            if last_quote.get("slug") == pos_slug:
+                try:
+                    settle_open_position(account, last_quote, logger, "run_end")
+                except Exception as e:
+                    log.warning("run-end settlement failed: %r", e)
         ctl.heartbeat(snapshot_status(
             "stopped", strategy=strategy_name, mode=mode,
             account=account, slug_count=slug_idx, stop_reason=stop_reason,

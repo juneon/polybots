@@ -77,6 +77,14 @@ class SimAccount:
             "tp_done": False,
         }
 
+    def drop_position(self) -> Optional[Dict[str, Any]]:
+        """Write off a stale carried position (no cash effect — settlement price
+        is unknowable after its slug is gone; the slug stays 'unclosed' in
+        metrics, which excludes it from realized PnL by definition D10)."""
+        dropped, self.position = self.position, None
+        self._save()
+        return dropped
+
     def has_position(self) -> bool:
         return bool(self.position) and self.position_qty() > DUST_CLEAR_TOKENS
 
@@ -98,7 +106,12 @@ class SimAccount:
         if kind == "buy" and qty > 0 and px > 0:
             notional = qty * px
             self.cash -= notional
-            self.position = {"side": side, "entry": px, "qty_tokens": qty, "notional_usd": notional}
+            # slug pins the position to its own 15-min market: tokens are
+            # worthless outside it, so exits against another slug are refused
+            self.position = {
+                "side": side, "entry": px, "qty_tokens": qty, "notional_usd": notional,
+                "slug": str(trade.get("slug", "")),
+            }
 
             ent = self.state.get("entries") or {}
             if isinstance(ent, dict) and side in ent:
@@ -112,6 +125,13 @@ class SimAccount:
         if qty <= 0 or not self.position:
             return
         if self.position.get("side") != side:
+            return
+        # cross-slug exit guard: a carried position must not be "sold" at the
+        # next slug's (different token) price — settle/drop happens in runner
+        pos_slug = str(self.position.get("slug") or "")
+        trade_slug = str(trade.get("slug") or "")
+        if pos_slug and trade_slug and pos_slug != trade_slug:
+            log.warning("ignoring cross-slug exit: position %s vs trade %s", pos_slug, trade_slug)
             return
 
         remain = _f(self.position.get("qty_tokens"), 0.0) - qty

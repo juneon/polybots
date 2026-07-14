@@ -183,7 +183,7 @@
     </div>
 
     <div class="panel">
-      <h2>데이터 수집 진행률 (P0 — 백테스트 재평가 기준: slug 30개)</h2>
+      <h2>데이터 수집 진행률 (P0 — 재판정 기준: 완전 slug 60개, D22)</h2>
       <div id="gauges"></div>
     </div>
   </div>
@@ -367,15 +367,17 @@ function renderBots(bots) {
 }
 
 function renderGauges(col) {
-  const names = Object.keys(col.slugs || {}).sort();
-  if (!names.length) { $("#gauges").innerHTML = '<div class="empty">수집된 데이터 없음</div>'; return; }
-  $("#gauges").innerHTML = names.map(n => {
-    const c = col.slugs[n], pct = Math.min(100, 100 * c / col.target);
-    return `<div class="gauge">
-      <div class="lbl"><span>${esc(n)}</span><span class="num">${c} / ${col.target} slugs</span></div>
+  if (!col.total) { $("#gauges").innerHTML = '<div class="empty">수집된 데이터 없음</div>'; return; }
+  // 완전 slug = 시작 tleft≥870 · 종료 ≤15 · 내부 갭 ≤60s (전략간 중복 제거 — 시세는 마켓당 1개 자산)
+  const pct = Math.min(100, 100 * col.complete / col.target);
+  const perStrat = Object.entries(col.by_strategy || {})
+    .map(([n, c]) => `${esc(n)} ${c}`).join(" · ");
+  $("#gauges").innerHTML = `<div class="gauge">
+      <div class="lbl"><span>완전 slug</span><span class="num">${col.complete} / ${col.target} (관측 ${col.total}개)</span></div>
       <div class="rail"><div class="fill" style="width:${pct}%"></div></div>
-    </div>`;
-  }).join("");
+    </div>
+    <div class="hint">관측 slug ${col.total} = 완전 ${col.complete} + 미완성 ${col.total - col.complete} (늦은 시작·이른 종료·중간 갭).
+    전략별 관측 수: ${perStrat} — 같은 slug를 두 봇이 기록해도 1개로 센다.</div>`;
 }
 
 async function refresh() {
@@ -383,7 +385,7 @@ async function refresh() {
     const st = await api("/api/status");
     $("#conn").innerHTML = '<span class="dot on"></span>서버 연결됨';
     renderBots(st.bots || []);
-    renderGauges(st.collection || {target: 30, slugs: {}});
+    renderGauges(st.collection || {target: 60, complete: 0, total: 0, by_strategy: {}});
   } catch (e) {
     $("#conn").innerHTML = '<span class="dot"></span>서버 연결 끊김';
   }

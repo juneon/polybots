@@ -32,7 +32,7 @@ STATIC = Path(__file__).resolve().parent / "static"
 
 HOST = "127.0.0.1"
 PORT = 8787
-COLLECTION_TARGET = 30  # P0 goal: slugs to collect before re-running the backtest (STATUS.md)
+COLLECTION_TARGET = 60  # P0 goal: COMPLETE slugs (D22) before the D23 re-judgement (WORKLOG 2026-07-14)
 
 app = FastAPI(title="polybots control", docs_url=None, redoc_url=None)
 procman = ProcManager()
@@ -79,10 +79,7 @@ def status():
     return {
         "server_ts": int(time.time()),
         "bots": procman.status(),
-        "collection": {
-            "target": COLLECTION_TARGET,
-            "slugs": collection.counts(),
-        },
+        "collection": {"target": COLLECTION_TARGET, **collection.progress()},
     }
 
 

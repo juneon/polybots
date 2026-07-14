@@ -8,6 +8,11 @@ Entry (flat only):
   - a side qualifies when its ask <= cap AND the ask crosses UP through its ask-SMA
   - tick_confirm == 0: enter on the crossing tick (cheaper qualifying side wins)
   - tick_confirm > 0: require N consecutive ticks of (ask <= cap and ask > SMA)
+  - entry_slope_max (optional): the SMA's slope over the last entry_slope_window_sec
+    must be <= this value — e.g. 0.0 keeps only dip-bounce crosses (rising-MA
+    chase entries were the toxic bucket: 2026-07-14 screening, complete 203 slugs,
+    slope<=-0.005 lifted the replay +2.96 -> +43.40 across all three sources).
+    Blocks entries until enough SMA history exists. None (default) disables.
   - suppressed inside no_entry_last_sec window and during cooldown_sec after a fill
 
 Exit (holding only; position truth = account.position):
@@ -45,6 +50,8 @@ class MAConfig:
     cooldown_sec: int = 0
     no_entry_last_sec: Optional[int] = None   # None disables
     tp_abs: Optional[float] = None            # e.g. 0.98: exit when held side's bid >= 0.98
+    entry_slope_max: Optional[float] = None   # e.g. 0.0: enter only through a non-rising SMA
+    entry_slope_window_sec: int = 60          # slope lookback (ticks ~ seconds)
 
 
 class RollingSMA:
@@ -76,6 +83,9 @@ class MAStrategy(BaseStrategy):
             cooldown_sec=int(scfg.get("cooldown_sec", 0)),
             no_entry_last_sec=scfg.get("no_entry_last_sec"),
             tp_abs=(None if scfg.get("tp_abs") is None else float(scfg["tp_abs"])),
+            entry_slope_max=(None if scfg.get("entry_slope_max") is None
+                             else float(scfg["entry_slope_max"])),
+            entry_slope_window_sec=int(scfg.get("entry_slope_window_sec", 60)),
         )
         self._state: Dict[str, Dict[str, Any]] = {}   # slug -> state
         self._next_entry_ts: float = float("-inf")    # cooldown gate (set on buy fill)
@@ -97,6 +107,13 @@ class MAStrategy(BaseStrategy):
                 "prev_up_bid_ma": None, "prev_dn_bid_ma": None,
 
                 "above_count": {"up": 0, "down": 0},
+
+                # ask-SMA history for the entry slope filter (window+1 samples
+                # so hist[0] is exactly window ticks before hist[-1])
+                "ask_ma_hist": {
+                    "up": deque(maxlen=self.cfg.entry_slope_window_sec + 1),
+                    "down": deque(maxlen=self.cfg.entry_slope_window_sec + 1),
+                } if self.cfg.entry_slope_max is not None else None,
 
                 "buy_inflight": False,   # resting unconfirmed BUY -> block re-entry
                 "exit_armed": False,     # MA cross-down latched -> re-emit sell until filled
@@ -122,6 +139,19 @@ class MAStrategy(BaseStrategy):
         if prev_x is None or prev_ma is None or x is None or ma is None:
             return False
         return (prev_x >= prev_ma) and (x < ma)
+
+    def _slope_ok(self, st: Dict[str, Any], side: str) -> bool:
+        """entry_slope_max gate: SMA slope over the lookback must be <= max.
+        Conservative while history is short (warmup) — no entry."""
+        if self.cfg.entry_slope_max is None:
+            return True
+        hist = st["ask_ma_hist"][side]
+        if len(hist) < hist.maxlen:
+            return False
+        old, new = hist[0], hist[-1]
+        if old is None or new is None:
+            return False
+        return (new - old) <= self.cfg.entry_slope_max
 
     # ---------- interface ----------
 
@@ -217,6 +247,10 @@ class MAStrategy(BaseStrategy):
             prev_up_bid_ma=up_bid_ma, prev_dn_bid_ma=dn_bid_ma,
         )
 
+        if st["ask_ma_hist"] is not None:
+            st["ask_ma_hist"]["up"].append(up_ask_ma)
+            st["ask_ma_hist"]["down"].append(dn_ask_ma)
+
         pos = account.position  # SOT: dict {"side","entry",...} or None
 
         # ---- EXIT (holding) ----
@@ -266,15 +300,19 @@ class MAStrategy(BaseStrategy):
             px = up_ask if side == "up" else dn_ask
             if px > self.cfg.cap:
                 return []
+            if not self._slope_ok(st, side):
+                return []   # counters stay: the gate re-evaluates next tick
 
             ac["up"] = ac["down"] = 0
             return [make_intent("buy", slug, tick, side, px, self.cfg.qty_tokens, tleft)]
 
         # tick_confirm == 0: crossing tick only, cheaper qualifying side wins
         candidates = []
-        if up_ask <= self.cfg.cap and self._cross_up(prev["prev_up_ask"], prev["prev_up_ask_ma"], up_ask, up_ask_ma):
+        if up_ask <= self.cfg.cap and self._cross_up(prev["prev_up_ask"], prev["prev_up_ask_ma"], up_ask, up_ask_ma) \
+           and self._slope_ok(st, "up"):
             candidates.append(("up", up_ask))
-        if dn_ask <= self.cfg.cap and self._cross_up(prev["prev_dn_ask"], prev["prev_dn_ask_ma"], dn_ask, dn_ask_ma):
+        if dn_ask <= self.cfg.cap and self._cross_up(prev["prev_dn_ask"], prev["prev_dn_ask_ma"], dn_ask, dn_ask_ma) \
+           and self._slope_ok(st, "down"):
             candidates.append(("down", dn_ask))
 
         if not candidates:

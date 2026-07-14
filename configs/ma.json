@@ -16,6 +16,8 @@
     "cap": 0.5,
     "ma_len": 300,
     "tick_confirm": 0,
+    "entry_slope_max": null,
+    "entry_slope_window_sec": 60,
     "cooldown_sec": 0,
     "no_entry_last_sec": null,
     "tp_abs": 0.98
