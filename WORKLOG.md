@@ -57,6 +57,7 @@
   - [ ] exit_tp도 스윕 경로로 (3/3에서 FAK no-match로 익절 실패 1건)
   - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
+  - [ ] maker 진입 검토 — `execution.buy: "limit"` 경로로 스프레드 회수 (왕복비용 ~$0.02가 유일한 확정 마이너스: 2026-07-14 캘리브레이션 스터디). adverse selection은 live 소액 실측으로
   - [x] **sim 이월 포지션 정산 처리** ✅ 2026-07-14 저녁 — 마지막 bid 강제 장부 마감(exit_expiry) + 교차 slug exit 차단 + stale write-off (SPEC §4.5). 과거 실측 3건(MA +5.3 과대 / threshold −3.5~−8.8 과소)의 장부는 소급 수정 안 함
 - **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거) · ~~data_prep의 live_mar03 소스를 backtest/data/로 승격~~ ✅ 2026-07-13 집: `backtest/data/mar03_live.csv`로 승격(git 추적), archive/ 의존 제거
 - **P4 — 확장**: ETH/SOL/XRP·5분/1시간 마켓 (config slug prefix/interval 교체) — **선행: 봇 정체성을 "전략"→"전략@마켓"으로** (config 파일명·sim 계좌 파일·procman 키·run_id·metrics 집계 5곳이 전략 단위라 같은 전략 2마켓 동시 실행 시 충돌, 2026-07-12 심층 리뷰) · train/val 소스명 하드코딩 정리 · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 아카이브 최종 처분(구조 감사 #7)
@@ -496,3 +497,20 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - 기각: 진입 전 변동성 필터 — 중간 변동성이 최고, 저/고 양쪽 부진한 비단조(n=56/버킷)라 과적합 위험
 
 스크립트: 세션 스크래치 analyze_vars.py / analyze_ma2.py (parquet 재생성 포함, 완전 203 = janfeb 161 + mar03 16 + sim 26)
+
+### 2026-07-14 (집, 심야 2) — 프레임 전환 + 캘리브레이션 스터디 → `enter_stable_sec` 구현
+
+**프레임 전환 (사용자 지적으로 확정)**: "휩쏘 71%"는 이상 현상이 아니라 **시장이 캘리브레이션돼 있다는 증거** — 손절 시점 bid(≈0.73~0.75) = 회복 확률이고 실현 회복률 68%가 일치. threshold는 상단 0.98/하단 entry−0.12 박스에서 **~52/48 확률게임을 왕복비용 ~0.02 내며 반복**하는 구조. exit 미세조정으로 EV 안 바뀜 → 레버는 ① 진입 알파 ② 왕복비용 ③ 레짐 게이트 순. 보고서 쌍: `reports/20260714_threshold_calibration_{plan,result}.html` (D24, 이후 보고서는 일자 접두 + 본문에 작성 시점 명기)
+
+**캘리브레이션 스터디 결과 (완전 203, slug당 밴드당 1관측)**:
+- **Q1 엣지의 존재**: janfeb은 0.85+ 전 밴드 완만한 저평가(+1.3~1.7%p, 방향 일관), **sim(7월)은 전 밴드 과대평가(−3.3~−6.9%p)** — 7월엔 favorite 매수 자체가 −EV. 어떤 밴드도 2se 유의는 아님(강한 엣지는 애초에 없음)
+- **Q2 도달 경로 (핵심 발견)**: 실전 규칙 진입 168건 중 **78%가 0.85 돌파 <15초 스파이크 매수 = edge 0/음수**. 15~180초 유지 후 진입은 양수 edge, **janfeb·sim 방향 일치** (janfeb +0.007→+0.114, sim −0.098→+0.133). tleft 50~180 진입 edge +0.099로 t180 영역 독립 재확인. 안정 진입에선 홀드>브래킷(손절 churn이 순손실) — 필터+넓은 손절 조합 여지
+- **Q3 롤링 레짐 게이트 기각**: 민감(10/0)은 janfeb 40% 훼손+sim 악화, 느슨(20/−5)은 무효과. 사전 기준 미달
+- **구현**: `strategies/threshold.py`에 `enter_stable_sec` — ask ≥ enter_price_1이 N초(tleft) 연속 유지 후에만 진입, 이탈 시 리셋. **기본 0 = 현행 불변** (config 키 추가). 같은 세션 ma `entry_slope_max`와 함께 신규 변수 2개 대기 상태. 테스트 72 → **74**
+
+**다음 스텝 (구체화 — 우선순위)**:
+1. **수집 계속** → 완전 sim 60 도달 시 **D23 재판정**: sweep 축 = 기존 5축 + `stop_confirm_sec` {0,20,30} + **`enter_stable_sec` {0,15,30,60}** — 비교 대상: 현행 vs t180/c20~30 vs stable 계열 vs 조합
+2. **다음 ma 그리드**: `entry_slope_max` {none, 0, −0.005, −0.01} + cap 0.6~0.7 + ma_len 600 축 (기존 예약분)
+3. **P2에 추가**: maker 진입 검토(`execution.buy: "limit"` 경로 활용) — 왕복 ~$0.02가 유일한 확정 마이너스, 스프레드 절반 회수 가능. adverse selection 리스크는 live 소액에서 실측
+4. 레짐 게이트: 기각. 재진입 포함 실전략 기준으로 재판정 때 1회만 재확인
+5. sim이 전 밴드 −EV인 현 레짐에서는 **파라미터 교체보다 표본 확충이 계속 우선** (수집 중단 금지)

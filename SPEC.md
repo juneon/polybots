@@ -225,6 +225,7 @@ runner가 sim 모드에서만 처리 (live는 `reconcile_on_slug`가 담당):
 진입 (무포지션 + `t_deadline < tleft ≤ t_enter` 윈도우):
 - side = Up/Down 중 **ask가 더 높은 쪽**(우세측).
 - `ask > entry_cap`(0.9)이면 거부.
+- `enter_stable_sec`(기본 0) > 0이면 그 side의 ask가 `enter_price_1` 이상을 N초(tleft 기준) **연속 유지**했을 때만 진입 — 스파이크 첫 tick 매수 금지 (돌파 직후 <15s 진입이 무엣지 버킷: 2026-07-14 캘리브레이션 스터디). 이탈 시 타이머 리셋.
 - 첫 진입(n=0): `ask ≥ enter_price_1`(0.8).
 - 재진입(n≥1): **손절 체결 확정 후에만**, `ask ≥ enter_price_re`(0.8), (선택) dd 필터 —
   최근 `dd_window_sec`(120초, tleft 기준) 내 peak bid 대비 `dd = cur_bid − peak ≤ reentry_dd_min`(−0.15)일 때만.

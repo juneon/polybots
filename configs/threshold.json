@@ -20,6 +20,7 @@
     "enter_price_1": 0.85,
     "enter_price_re": 0.85,
     "entry_cap": 0.9,
+    "enter_stable_sec": 0,
 
     "stop_drop": 0.12,
     "stop_confirm_sec": 0,

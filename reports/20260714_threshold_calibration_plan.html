@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사전 보고서 — threshold 캘리브레이션 스터디 (2026-07-14 심야)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #e2e6ea;
+    --accent: #0b6bcb; --warn: #b4540a; --ok: #1a7f37; --bad: #c0392b;
+    --card: #f6f8fa; --code: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #9aa4ae; --line: #2b3238;
+      --accent: #5aa2e8; --warn: #e0a05a; --ok: #62c481; --bad: #e0705a;
+      --card: #1c2126; --code: #232930;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 920px; padding: 32px 20px 80px;
+         font: 15px/1.7 "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.6em; border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+  h2 { font-size: 1.25em; margin-top: 2.2em; border-left: 4px solid var(--accent); padding-left: 10px; }
+  h3 { font-size: 1.05em; margin-top: 1.6em; }
+  .meta { color: var(--muted); font-size: 0.9em; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .tldr b { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .scroll { overflow-x: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .small { font-size: 0.85em; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>사전 보고서 — threshold 캘리브레이션 스터디</h1>
+<p class="meta">2026-07-14 심야 · 집 PC · 작성: Claude (백테스팅 착수 전 계획서) · 짝 문서: 완료 후 <code>20260714_threshold_calibration_result.html</code></p>
+
+<div class="tldr">
+<b>TL;DR</b> — "휩쏘 71%"는 이상 현상이 아니라 <b>시장이 캘리브레이션돼 있다는 증거</b>였다
+(손절 시점 bid ≈ 0.73~0.75가 곧 회복 확률이고, 실현 회복률 68%가 이와 일치).
+그렇다면 threshold는 <b>±0.11/0.12를 거는 ~52/48 확률게임을 왕복비용 ~0.02를 내며 반복</b>하는 구조이고,
+exit 규칙 미세조정으로는 EV가 안 바뀐다. 이번 스터디는 남은 유일한 알파 레버인 <b>진입 선택</b>을 검증한다:
+① favorite이 애초에 mispriced인 가격대/시기가 있는가 ② 진입 시점의 <b>도달 경로</b>(안정 유지 vs 스파이크)가
+내재확률 이상의 정보를 주는가 ③ 엣지가 시기별로 뜨고 진다면 <b>롤링 레짐 게이트</b>가 방어가 되는가.
+</div>
+
+<h2>1. 배경 — 프레임 전환 (2026-07-14 심야 대화)</h2>
+<table>
+<tr><th>기존 프레임</th><th>수정된 프레임</th></tr>
+<tr><td>"손절의 71%가 휩쏘 → 손절 규칙이 문제, 더 똑똑한 트리거를 찾자"</td>
+<td>손절 시점 시장가는 캘리브레이션됨 (내재 ~73% vs 실현 68%, 오차범위 내) → <b>하단 터치는 박스 하단이 걸린 정상 이벤트</b>. 브리치 순간 특징으로 회복/붕괴 구분 불가(당일 스크리닝)와 동전의 양면</td></tr>
+<tr><td>파라미터(stop/tp/시점) 스윕으로 성능 개선</td>
+<td>박스 기하: 0.87 진입, 상단 0.98/하단 0.75 → 상단 선착 ~52%, 보상 +0.11/−0.12, 왕복비용 ~0.02 → <b>기본 EV ≈ −비용</b>. janfeb +24는 favorite drift(mispricing)가 실재했다는 뜻, sim 음수는 그 drift 약화</td></tr>
+</table>
+<p>따라서 최적화 우선순위: <b>① 진입 알파 ② 왕복비용 절감(P2 maker 진입과 연계) ③ 레짐 게이트 ④ 브래킷은 비용 반영 배리어 오즈로 해석</b>. 이번 백테스팅은 ①과 ③을 데이터로 확인한다.</p>
+
+<h2>2. 질문과 방법 (완전 slug 203개: janfeb 161 / mar03 16 / sim 26)</h2>
+
+<h3>Q1. favorite은 애초에 mispriced인가 — 캘리브레이션 커브</h3>
+<div class="card">
+slug별 · 가격밴드별(0.80–0.85 / 0.85–0.90 / 0.90–0.95 / 0.95–0.98) <b>최초 터치 1회만 관측</b>
+(tleft 450~50 창): 그 시점 favorite ask(내재확률) vs 실제 그 사이드 정산 여부.
+<b>realized − implied &gt; 0이면 매수 엣지 존재.</b> 소스별 분리 → 레짐 간 엣지 변화가 그대로 보인다.
+</div>
+<p class="small">slug당 밴드당 1관측: 같은 slug의 연속 tick은 정산 결과를 공유하므로(의사 반복) 부풀린 n을 만들지 않기 위함.</p>
+
+<h3>Q2. 진입의 도달 경로가 정보를 주는가 — 진입 필터 후보</h3>
+<div class="card">
+실전 규칙 그대로의 진입(첫 트리거: tleft ≤ 450, favorite ask ∈ [0.85, 0.90], slug당 1개, n≈168)을
+진입 시점 상태로 버킷해 <b>실현 승률 − 내재확률(edge)</b>과 브래킷 PnL을 비교:
+<ul>
+<li><code>stable_sec</code> — 진입 직전 ask ≥ 0.85가 연속 유지된 시간 (&lt;15s = 스파이크 직후 매수 vs &gt;180s = 안정 favorite)</li>
+<li><code>mom60</code> — 직전 60초 ask 변화량 (급등 중 진입 vs 횡보 진입)</li>
+<li><code>tleft</code> 버킷 — 기존 t180 발견의 재확인</li>
+<li>stable_sec × 소스 교차 — 레짐이 바뀌어도 유지되는 패턴인지</li>
+</ul>
+edge가 유의하게 갈리면 → 신규 변수 <code>enter_stable_sec</code>(N초 유지 후에만 진입) 채택 후보.
+</div>
+
+<h3>Q3. 레짐 게이트 — 엣지 소멸기의 방어</h3>
+<div class="card">
+전체 진입을 시간순으로 놓고 <b>전부 페이퍼 트레이드(shadow)</b>하되, 실제 진입은
+"직전 W개 shadow PnL 합 &gt; 임계"일 때만: (W, 임계) ∈ {10, 20} × {0, −5}.
+janfeb 이익을 보존하면서 sim 손실을 줄이는 조합이 있으면 → 메타 레이어(전략 밖, runner/설정 수준) 후보.
+</div>
+
+<h3>판정 기준 (사전 고정)</h3>
+<ol>
+<li>Q1: |edge| &gt; 2×se인 밴드×소스만 "존재"로 인정 (n≥5 미만 버킷은 미표기)</li>
+<li>Q2: 버킷 간 edge 차이가 se 대비 크고 <b>janfeb과 sim에서 방향이 일치</b>해야 필터 후보 (한 소스 전용이면 레짐 특화로 기각)</li>
+<li>Q3: janfeb 이익의 80% 이상 보존 + sim 손실 축소면 채택 후보</li>
+<li>채택 후보는 모두 <b>엔진 스윕(D23 3중 기준)을 통과해야 config/코드 반영</b> — 본 스터디는 스크리닝</li>
+</ol>
+
+<h2>3. 리스크 / 주의</h2>
+<ul>
+<li><span class="warn">sim 표본 26 slugs</span> — sim 단독 버킷의 se가 크다. 방향성 확인용, 확정은 완전 60개 후 재판정에서</li>
+<li><span class="warn">간이 리플레이</span> — 재진입/dd 필터 제외한 단일 진입 브래킷. 실전략 수치와 절대값 다름 (상대 비교용)</li>
+<li><span class="warn">Q3의 shadow 게이트는 진입 기회가 드문 구간에서 반응이 느림</span> — slug 단위(15분)라 W=10이면 최소 2.5시간의 관찰 창</li>
+</ul>
+
+<p class="meta">완료 후 같은 폴더의 result 보고서에서 이 계획 대비 실제 결과를 대조한다. 스크립트: 세션 스크래치 <code>calib_threshold.py</code></p>
+
+</body>
+</html>

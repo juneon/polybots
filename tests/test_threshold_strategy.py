@@ -19,6 +19,27 @@ def make():
     return ThresholdStrategy(CFG), FakeAccount()
 
 
+def test_stable_gate_blocks_fresh_spike_and_allows_after_hold():
+    cfg = {"strategy": dict(CFG["strategy"], enter_stable_sec=20)}
+    st, acc = ThresholdStrategy(cfg), FakeAccount()
+    # ask first reaches enter_price_1 at tleft=400 -> gate opens at tleft<=380
+    assert st.on_event(quote_ev(tleft=400, up=(0.79, 0.82)), acc) == []      # fresh spike
+    assert st.on_event(quote_ev(tleft=390, up=(0.80, 0.83)), acc) == []      # held 10s
+    out = st.on_event(quote_ev(tleft=380, up=(0.80, 0.83)), acc)             # held 20s
+    assert out and out[0]["kind"] == "buy"
+
+
+def test_stable_gate_resets_when_ask_dips_below_threshold():
+    cfg = {"strategy": dict(CFG["strategy"], enter_stable_sec=20)}
+    st, acc = ThresholdStrategy(cfg), FakeAccount()
+    st.on_event(quote_ev(tleft=400, up=(0.79, 0.82)), acc)
+    st.on_event(quote_ev(tleft=390, up=(0.70, 0.75)), acc)                   # dip resets the run
+    assert st.on_event(quote_ev(tleft=375, up=(0.80, 0.83)), acc) == []      # re-crossed here (0s)
+    assert st.on_event(quote_ev(tleft=370, up=(0.80, 0.83)), acc) == []      # held 5s
+    out = st.on_event(quote_ev(tleft=355, up=(0.80, 0.83)), acc)             # held 20s
+    assert out and out[0]["kind"] == "buy"
+
+
 def test_enters_favorite_inside_window():
     st, acc = make()
     out = st.on_event(quote_ev(tleft=300, up=(0.79, 0.82), dn=(0.15, 0.18)), acc)

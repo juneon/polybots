@@ -6,6 +6,12 @@ All timing uses time_left_sec (tleft) — never wall-clock (ts is log-only).
 Entry (flat only, inside the window t_deadline < tleft <= t_enter):
   - side = the MORE expensive side (the market favorite)
   - reject if ask > entry_cap
+  - enter_stable_sec > 0: the side's ask must have held >= enter_price_1
+    CONTINUOUSLY for that many seconds (tleft-based) — no buying the first
+    tick of a spike. Calibration study 2026-07-14: entries <15s after the
+    0.85 cross were the no-edge bucket (78% of entries, realized-implied
+    ~ -0.01) while 15-180s-stable entries were positive in janfeb AND sim.
+    0 = enter on the crossing tick (legacy).
   - first entry (n == 0):  ask >= enter_price_1
   - re-entry (n >= 1):     only after a confirmed stop-loss, ask >= enter_price_re,
                            and (optional) drawdown filter: current bid must sit at least
@@ -52,6 +58,7 @@ class ThresholdStrategy(BaseStrategy):
         self.p1 = float(s["enter_price_1"])
         self.pre = float(s["enter_price_re"])
         self.cap = float(s.get("entry_cap", 1.0))
+        self.stable_sec = int(s.get("enter_stable_sec", 0))   # 0 = instant (legacy)
 
         # risk
         self.sl_drop = float(s["stop_drop"])
@@ -74,6 +81,8 @@ class ThresholdStrategy(BaseStrategy):
         self.stopped = False    # a stop-loss fill confirmed -> re-entry allowed
         self.lock = False       # a TP fill confirmed -> slug hard-locked
         self._sl_breach_tleft = None   # tleft when the current stop breach began
+        # tleft when each side's ask last rose to >= enter_price_1 (stable gate)
+        self._above_since = {"up": None, "down": None}
 
         # dd history: (tleft, bid) per side — unified time axis
         self._bid_hist = {"up": deque(), "down": deque()}
@@ -128,8 +137,19 @@ class ThresholdStrategy(BaseStrategy):
             self.stopped = False
             self.lock = False
             self._sl_breach_tleft = None
+            self._above_since = {"up": None, "down": None}
             self._bid_hist["up"].clear()
             self._bid_hist["down"].clear()
+
+        # stable gate: track per side when the ask last rose to >= enter_price_1
+        # (every quote, holding or not, so the run history is continuous)
+        if self.stable_sec > 0:
+            for s in ("up", "down"):
+                if float(q[s]["ask"]) >= self.p1:
+                    if self._above_since[s] is None:
+                        self._above_since[s] = tleft
+                else:
+                    self._above_since[s] = None
 
         # dd history: when the filter is on, record every quote (pre- and post-SL)
         # so the "peak of the last dd_window_sec before the stop" is available
@@ -184,6 +204,12 @@ class ThresholdStrategy(BaseStrategy):
 
         if price > self.cap:
             return []
+
+        # stable gate: the ask must have held >= enter_price_1 long enough
+        if self.stable_sec > 0:
+            since = self._above_since[side]
+            if since is None or (since - tleft) < self.stable_sec:
+                return []
 
         if self.n == 0:
             # first entry
