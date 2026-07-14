@@ -41,6 +41,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--json", default=None, metavar="PATH",
                     help="summary JSON path (default: results/<ts>_sweep_threshold.json)")
+    ap.add_argument("--include-partial", action="store_true",
+                    help="also replay partial slugs (pre-2026-07-14 behavior)")
     args = ap.parse_args()
 
     ts = time.strftime("%Y%m%d_%H%M%S")
@@ -49,7 +51,7 @@ def main():
     out_json = args.json or str(results_dir / f"{ts}_sweep_threshold.json")
 
     base_cfg = json.loads((ROOT / "configs" / "threshold.json").read_text(encoding="utf-8"))
-    slugs = prepare_slugs(pd.read_parquet(args.data))
+    slugs = prepare_slugs(pd.read_parquet(args.data), include_partial=args.include_partial)
 
     rows = []
     combos = list(product(ENTER_1, STOP_DROP, TAKE_PROFIT, ENTRY_CAP, T_ENTER))
@@ -101,6 +103,7 @@ def main():
 
     summary = {
         "kind": "sweep", "strategy": "threshold", "data": args.data,
+        "include_partial": args.include_partial, "slugs": len(slugs),
         "cost_model": {"haircut": args.haircut, "p_fail": args.pfail, "seed": args.seed},
         "combos": len(combos), "results_csv": out_csv,
         "top": df.head(15).to_dict(orient="records"),

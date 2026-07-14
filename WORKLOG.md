@@ -50,7 +50,7 @@
 
 ## 로드맵 (정본 — 구 STATUS.md P0~P4 흡수, 2026-07-12)
 
-- **P0 — sim 수집** ✅ (2026-07-13): threshold 33 slugs 수집 완료 (집 12 + 회사 21, 목표 30 초과). 단 재평가에서 신규 구간 음수 → 수집 연장/파라미터 반영 판단 대기 (진행 로그 2026-07-13 참조)
+- **P0 — sim 수집** ✅ (2026-07-13): threshold 33 slugs 수집 완료 (집 12 + 회사 21, 목표 30 초과). 단 재평가에서 신규 구간 음수 → 수집 연장. **2026-07-14 완전성 기준(D22) 재집계: 완전 slug 23 — 연장 목표 완전 60개** 후 D23 절차로 재판정
 - **P1 — 백테스트 현실화** ✅ (2026-07-07): 비용 캘리브레이션(haircut 0.01 / p_fail 0.2) — 엔진이 3/3 실거래를 ±$2.6로 재현. 판정: MA 라이브 부적합, threshold 주력 후보(tp 0.99)
 - **P2 — 실행 품질** (live 손실 요인 제거, live 재개 전 필수 — core 작업):
   - [ ] `sell_dust:below_step` 대응 — 리팩토링 반영분(청산 실패 시 다음 tick 재발행) 라이브 검증
@@ -422,3 +422,27 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - 판단: MA config 즉시 교체는 보류(34 slugs 표본). MA sim 재가동은 recorder 분리(P3)와 엮어 결정
 
 **REPORT.html** (루트, gitignore/D19): 위 전부 + 차트(누적 PnL·slug별·카운터팩추얼)로 재생성 가능한 상세 보고서. 생성 스크립트는 세션 스크래치(analyze_actual/optimize_sim/build_report.py)
+
+### 2026-07-14 (회사) — 백테스트 정리: 이름 통일 + slug 완전성 + robust config 판정 (변경 없음 결론)
+
+**결정 4건**:
+
+| # | 결정 | 내용 |
+|---|---|---|
+| D21 | **전략 정식명 `threshold` / `ma`** (ma_breakout 개명) | 코드·config·문서 전부 rename. **과거 로그 CSV는 불변** — 옛 run_id의 `ma_breakout`은 읽기 시점 정규화(`ui.metrics.LEGACY_STRATEGY_NAMES`), sim 계좌 파일은 runner가 시작 시 자동 이관 (집 PC도 pull 후 첫 실행에서 자동) |
+| D22 | **slug 완전성 기준 + complete-only 기본** | complete = 시작 tleft≥870 ∧ 종료 tleft≤15 ∧ 내부 갭≤60s (임계 흔들어도 200±1 견고). 엔진의 만기 강제청산(마지막 bid≈정산가)은 완전 slug에서만 참 → 백테스트 기본 complete-only, `--include-partial`은 비교용 |
+| D23 | **robust 3중 기준 = config 반영 조건** | ① train 점수 상위 ② val(=out-of-sample) ≥ 0 ③ 이웃 plateau(인접 조합 비붕괴). 셋 다 만족해야 configs/ 반영, 미달이면 현행 유지 + 사유 기록 |
+| D24 | **reports/ 폴더 (git track)** | 큰 작업의 착수 전 plan / 완료 후 result HTML 쌍 (`<YYYYMMDD>_<주제>_{plan|result}.html`). 문서 5개 체계(D19)는 불변 — 정본은 여전히 WORKLOG |
+
+**데이터 인벤토리 (완전성 기준 첫 집계)**: 총 243 slugs = janfeb 189(완전 161) + mar03 18(완전 16) + sim 36(완전 23). 미완성 43개 사유: 늦은 시작 21 / 이른 종료 20 / 중간 갭 5(중복 포함)
+
+**브리지 (현 config, 전체→완전만)**: threshold +10.99 → **+16.36** (미완성이 −5.4 왜곡) / ma +11.38 → **+3.76** (미완성이 +7.6 부풀림) — 완전성 분리의 실효 확인
+
+**robust 판정 (완전 200 slugs, 비용 반영)**:
+- **threshold 144조합 재스윕**: 어제 config(0.85/0.12/0.98/cap0.9/t450)가 score 2위 + 상위 15개 중 유일 val 양수(+1.05)로 생존. **단 이웃 6개 전부 val 음수 = 스파이크** (enter_1 ±0.05 → score −20.66/−6.20). val 견고 영역(0.9/t180 계열)은 train 음수 = 레짐 특화 → D23 완전 충족 조합 **없음**
+- **ma 3,600조합 그리드**: 현 config(cap0.5/ma300/tc0/tp0.98)는 train 1위(7.78)지만 **oos(mar03+sim) −15.11 탈락** (mar03 −23.97, P1의 "MA 라이브 부적합"과 일치). train·oos 동시 양수 34/3,600뿐. 최선 영역 **cap0.45/ma200/tc0/tp0.99/cd30~90/ban80~100** (oos +3.1, tp/cd/ban 3축 plateau) — 단 ma_len 240 절벽(−14.9)·cap 스파이크, train score 1.84로 약함. 어제 후보 cap0.7/ma600은 그리드 축 밖(다음 그리드에서 축 확장 검토)
+- **결론: 양 전략 config 변경 없음** (D23 미달). threshold 현행 유지(가용 최선, 신뢰도 낮음 표기), ma는 후보 영역만 기록(sim 재가동은 여전히 recorder 분리 P3와 연계)
+
+**방향 (우선순위)**: ① sim 수집 계속 — **완전 slug 기준 목표 60** (현재 23, 게이지 30의 재해석) 후 재판정 ② P2 sim 이월 포지션 정산 수정 ③ 다음 ma 그리드에 cap 0.6~0.7 / ma_len 600 축 추가 ④ 재평가는 D23 절차로
+
+**산출물**: `reports/20260714_backtest_cleanup_{plan,result}.html` (result에 파라미터 민감도 차트 — plateau/스파이크 시각화), `backtest/results/20260714_165927_sweep_threshold.*` · `20260714_grid_ma.*`. 테스트 57개(+4: 완전성) 통과

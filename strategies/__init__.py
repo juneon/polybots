@@ -1,9 +1,9 @@
 # strategies: pluggable strategy implementations (1 strategy = 1 module)
-from .ma_breakout import MABreakoutStrategy
+from .ma import MAStrategy
 from .threshold import ThresholdStrategy
 
 REGISTRY = {
-    "ma_breakout": MABreakoutStrategy,
+    "ma": MAStrategy,
     "threshold": ThresholdStrategy,
 }
 

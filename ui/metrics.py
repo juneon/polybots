@@ -36,11 +36,16 @@ DUST_TOKENS = 0.011
 # run_id format: YYYYMMDD_HHMMSS_<strategy>_<mode>  (strategy itself may contain '_')
 _MODES = ("sim", "live")
 
+# strategies renamed over time — old run_ids in append-only logs keep the old
+# name; normalize at read time so history and new runs aggregate as one group
+LEGACY_STRATEGY_NAMES = {"ma_breakout": "ma"}
+
 
 def strategy_of_run_id(run_id: str) -> str:
     parts = run_id.split("_")
     if len(parts) >= 4 and parts[-1] in _MODES:
-        return "_".join(parts[2:-1])
+        name = "_".join(parts[2:-1])
+        return LEGACY_STRATEGY_NAMES.get(name, name)
     return run_id
 
 

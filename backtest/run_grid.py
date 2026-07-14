@@ -1,8 +1,8 @@
 # backtest/run_grid.py
-"""Realistic grid search for ma_breakout — fans out the exact-replay engine (multiprocess).
+"""Realistic grid search for ma — fans out the exact-replay engine (multiprocess).
 
 v2 (2026-07-12): the old vectorized MA reimplementation was removed (together with
-backtest.py). Every combo now replays the REAL strategies/ma_breakout.py through
+backtest.py). Every combo now replays the REAL strategies/ma.py through
 engine.replay, so grid semantics cannot drift from sim/live behavior. The grid
 axes are the strategy's actual config keys — note the old grid searched a
 relative tp/sl axis the real strategy cannot even run; it is replaced by tp_abs.
@@ -38,7 +38,7 @@ from engine import ROOT, prepare_slugs, replay
 DATA_PATH = "data/quotes_all.parquet"
 OUT_CSV = "results/grid_results_realistic.csv"
 
-# ====== grid axes — REAL strategy config keys (strategies/ma_breakout.py) ======
+# ====== grid axes — REAL strategy config keys (strategies/ma.py) ======
 GRID = {
     "cap": [0.5, 0.45, 0.4, 0.35, 0.3],
     "ma_len": [120, 200, 240, 300, 480],
@@ -81,13 +81,13 @@ def calc_mdd(pnls):
 _G = {}
 
 
-def _init_worker(data_path, p_fail, seed):
+def _init_worker(data_path, p_fail, seed, include_partial=False):
     quotes = pd.read_parquet(data_path)
-    _G["slugs"] = prepare_slugs(quotes)
+    _G["slugs"] = prepare_slugs(quotes, include_partial=include_partial)
     by_src = quotes.drop_duplicates("slug")[["slug", "source"]]
     _G["train"] = set(by_src.loc[by_src["source"] == "grid_jan_feb", "slug"])
     _G["val"] = set(by_src.loc[by_src["source"] == "live_mar03", "slug"])
-    _G["base_cfg"] = json.loads((ROOT / "configs" / "ma_breakout.json").read_text(encoding="utf-8"))
+    _G["base_cfg"] = json.loads((ROOT / "configs" / "ma.json").read_text(encoding="utf-8"))
     _G["p_fail"] = p_fail
     _G["seed"] = seed
 
@@ -97,7 +97,7 @@ def _eval_combo(job):
     params, haircut = job
     cfg = json.loads(json.dumps(_G["base_cfg"]))
     cfg["strategy"].update(params)
-    r = replay("ma_breakout", cfg, _G["slugs"],
+    r = replay("ma", cfg, _G["slugs"],
                haircut=haircut, p_fail=_G["p_fail"], seed=_G["seed"])
 
     # per_slug preserves slug order -> MDD over an ordered equity path
@@ -140,12 +140,13 @@ def run(args):
     total = len(jobs)
 
     from multiprocessing import Pool
-    print(f"grid: {total} combos (exact replay of strategies/ma_breakout.py), "
+    print(f"grid: {total} combos (exact replay of strategies/ma.py), "
           f"workers={args.workers}, cost model: haircut={args.haircut}, p_fail={args.pfail}", flush=True)
 
     rows = []
     t0 = time.time()
-    with Pool(args.workers, initializer=_init_worker, initargs=(args.data, args.pfail, args.seed)) as pool:
+    with Pool(args.workers, initializer=_init_worker,
+              initargs=(args.data, args.pfail, args.seed, args.include_partial)) as pool:
         for k, row in enumerate(pool.imap_unordered(_eval_combo, jobs, chunksize=2), 1):
             rows.append(row)
             if k % 25 == 0 or k == total:
@@ -198,7 +199,8 @@ def run(args):
 
     if args.json:
         summary = {
-            "kind": "grid", "strategy": "ma_breakout", "data": args.data,
+            "kind": "grid", "strategy": "ma", "data": args.data,
+            "include_partial": args.include_partial,
             "cost_model": {"haircut": args.haircut, "p_fail": args.pfail, "seed": args.seed},
             "combos": total, "elapsed_sec": round(time.time() - t0, 1),
             "results_csv": args.out,
@@ -211,7 +213,7 @@ def run(args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="realistic ma_breakout grid (exact-replay fan-out)")
+    ap = argparse.ArgumentParser(description="realistic ma grid (exact-replay fan-out)")
     ap.add_argument("--data", default=DATA_PATH)
     ap.add_argument("--out", default=OUT_CSV, help="results CSV path")
     ap.add_argument("--haircut", type=float, default=0.01)
@@ -219,6 +221,8 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--workers", type=int, default=max(2, min(10, (os.cpu_count() or 4) - 2)))
     ap.add_argument("--quick", action="store_true", help="16-combo smoke grid, skip sensitivity")
+    ap.add_argument("--include-partial", action="store_true",
+                    help="also replay partial slugs (pre-2026-07-14 behavior)")
     ap.add_argument("--json", default=None, metavar="PATH",
                     help="also write a machine-readable summary (for UI jobs)")
     args = ap.parse_args()

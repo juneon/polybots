@@ -34,7 +34,7 @@ CTL_DIR = ROOT / "logs" / "ctl"
 PARQUET = BACKTEST / "data" / "quotes_all.parquet"
 
 KINDS = ("data_prep", "engine", "sweep_threshold", "run_grid")
-FIXED_STRATEGY = {"sweep_threshold": "threshold", "run_grid": "ma_breakout"}
+FIXED_STRATEGY = {"sweep_threshold": "threshold", "run_grid": "ma"}
 NEEDS_PARQUET = ("engine", "sweep_threshold", "run_grid")
 
 MAX_PENDING = 5

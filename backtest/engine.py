@@ -15,8 +15,8 @@ Cost model (calibrated 2026-03-03 live session):
   - slug end: open position force-closes at last bid (~resolution value)
 
 Usage (from backtest/):
-    python engine.py --strategy ma_breakout                       # config defaults
-    python engine.py --strategy ma_breakout --set cap=0.4 ma_len=200
+    python engine.py --strategy ma                       # config defaults
+    python engine.py --strategy ma --set cap=0.4 ma_len=200
     python engine.py --strategy threshold --haircut 0.02 --pfail 0.3
 """
 from __future__ import annotations
@@ -120,12 +120,25 @@ class ReplayExecutor:
         return {**base, "status": "filled", "reason": "", "qty_tokens": want, "fill_price": fill_px}
 
 
-def prepare_slugs(quotes: pd.DataFrame) -> List[tuple]:
+def prepare_slugs(quotes: pd.DataFrame, include_partial: bool = False) -> List[tuple]:
     """Group + sort the quotes table once, for repeated replay() calls (sweeps).
 
     Returns [(slug, source, sorted_df), ...]; pass the list as replay()'s
     `quotes` argument to skip the per-call groupby.
+
+    Partial slugs (recording missed the open/expiry or has a restart hole —
+    data_prep's `complete` flag) are EXCLUDED by default: the engine settles
+    open positions at the last recorded bid, which is only truthful when the
+    recording reaches expiry. Pass include_partial=True to compare against
+    pre-2026-07-14 numbers.
     """
+    if not include_partial and "complete" in quotes.columns:
+        n_all = quotes["slug"].nunique()
+        quotes = quotes[quotes["complete"]]
+        n_drop = n_all - quotes["slug"].nunique()
+        if n_drop:
+            print(f"prepare_slugs: excluded {n_drop}/{n_all} partial slugs "
+                  f"(pass include_partial=True / --include-partial to keep them)")
     out = []
     for slug, s in quotes.groupby("slug", sort=False):
         # sort on ts (built from time_left_sec) — tick is a per-run counter and
@@ -221,7 +234,7 @@ def replay(strategy_name: str, cfg: Dict[str, Any], quotes,
 
 def main():
     ap = argparse.ArgumentParser(description="exact-replay backtest")
-    ap.add_argument("--strategy", default="ma_breakout")
+    ap.add_argument("--strategy", default="ma")
     ap.add_argument("--config", default=None, help="config path (default: ../configs/<strategy>.json)")
     ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VAL",
                     help="strategy param overrides, e.g. cap=0.4 ma_len=200")
@@ -232,6 +245,8 @@ def main():
     ap.add_argument("--json", default=None, metavar="PATH",
                     help="result JSON path (default: results/<ts>_engine_<strategy>.json)")
     ap.add_argument("--no-save", action="store_true", help="print only, skip the results/ archive")
+    ap.add_argument("--include-partial", action="store_true",
+                    help="also replay partial slugs (pre-2026-07-14 behavior)")
     args = ap.parse_args()
 
     cfg_path = Path(args.config) if args.config else ROOT / "configs" / f"{args.strategy}.json"
@@ -246,8 +261,9 @@ def main():
         cfg["strategy"][k] = v
 
     quotes = pd.read_parquet(args.data)
+    slugs = prepare_slugs(quotes, include_partial=args.include_partial)
     t0 = time.time()
-    r = replay(args.strategy, cfg, quotes, haircut=args.haircut, p_fail=args.pfail, seed=args.seed)
+    r = replay(args.strategy, cfg, slugs, haircut=args.haircut, p_fail=args.pfail, seed=args.seed)
     dt = time.time() - t0
 
     print(f"strategy={args.strategy} overrides={args.set} haircut={args.haircut} p_fail={args.pfail}")
@@ -265,7 +281,8 @@ def main():
         out = {
             "kind": "engine", "strategy": args.strategy, "overrides": args.set,
             "cost_model": {"haircut": args.haircut, "p_fail": args.pfail, "seed": args.seed},
-            "data": args.data, "elapsed_sec": round(dt, 2), **r,
+            "data": args.data, "include_partial": args.include_partial,
+            "elapsed_sec": round(dt, 2), **r,
         }
         Path(json_path).parent.mkdir(parents=True, exist_ok=True)
         Path(json_path).write_text(json.dumps(out, indent=2), encoding="utf-8")

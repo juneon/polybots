@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사전 보고서 — 백테스트 정리 + robust config (2026-07-14)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #e2e6ea;
+    --accent: #0b6bcb; --warn: #b4540a; --ok: #1a7f37; --bad: #c0392b;
+    --card: #f6f8fa; --code: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #9aa4ae; --line: #2b3238;
+      --accent: #5aa2e8; --warn: #e0a05a; --ok: #62c481; --bad: #e0705a;
+      --card: #1c2126; --code: #232930;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 920px; padding: 32px 20px 80px;
+         font: 15px/1.7 "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.6em; border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+  h2 { font-size: 1.25em; margin-top: 2.2em; border-left: 4px solid var(--accent); padding-left: 10px; }
+  h3 { font-size: 1.05em; margin-top: 1.6em; }
+  .meta { color: var(--muted); font-size: 0.9em; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .tldr b { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .scroll { overflow-x: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .small { font-size: 0.85em; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>사전 보고서 — 백테스트 정리 + robust config 도출</h1>
+<p class="meta">2026-07-14 · 회사 PC · 작성: Claude (작업 착수 전 계획서) · 짝 문서: 완료 후 <code>20260714_backtest_cleanup_result.html</code></p>
+
+<div class="tldr">
+<b>TL;DR</b> — 보유 데이터는 <b>243 slugs</b>(1~2월 189 / 3월 라이브 18 / sim 36)이고, 이 중
+<b>완전한 slug는 200개</b>다. 지금까지의 모든 백테스트는 완전/미완성을 구분하지 않아 미완성 43개가
+"만기 정산"인 척 섞여 있었다. 이번 작업에서 ① 전략 이름을 <code>threshold</code>/<code>ma</code>로 통일하고,
+② 완전 slug만으로 백테스트 기준선을 다시 세우고, ③ 두 전략 모두 스윕해서
+<b>미래 시계열에도 견딜 robust config</b>를 도출한다. 문서는 기존 5개 안에서만 갱신한다 (새 .md 없음).
+</div>
+
+<h2>1. 지금까지의 여정 (요약)</h2>
+<table>
+<tr><th>시점</th><th>내용</th><th>결과</th></tr>
+<tr><td>2026-07-06~07</td><td>레거시 3프로젝트 → 모노레포 리팩토링, P1 백테스트 현실화(비용 캘리브레이션 haircut 0.01 / p_fail 0.2)</td><td>엔진이 3/3 라이브 −$27.30을 −$29.92로 재현 — 신뢰 확보</td></tr>
+<tr><td>2026-07-11~12</td><td>Control UI Phase A~D (Control/Performance/Config/Backtest 탭), 문서 5개 체계 확립</td><td>봇 제어·성과·백테스트가 한 화면에</td></tr>
+<tr><td>2026-07-13 (회사)</td><td>P0 수집 완료: threshold 33 slugs (목표 30 초과)</td><td>단, 재평가에서 신규 구간 음수</td></tr>
+<tr><td>2026-07-13 (집)</td><td>시간축 버그 수정(tick→time_left 정렬) · 손실 원인 = 휩쏘 71% 규명 · 144조합 스윕 → <b>threshold config 교체</b> (0.85/0.12/tp0.98/t450)</td><td>sim 손실 87% 축소 조합 채택. 결과 자동 아카이브 도입</td></tr>
+<tr><td>2026-07-14 (집)</td><td>실매매 202건 포렌식 · <b>sim 이월 포지션 버그 발견</b>(P2 등록) · 수집분 전용 최적화</td><td>최근 레짐에선 MA 우세하나 표본 34개라 교체 보류</td></tr>
+</table>
+
+<h2>2. 문제 진단 — 왜 이 작업인가</h2>
+
+<h3>2.1 전략 이름 불일치</h3>
+<p>같은 전략이 코드·설정·로그·문서에서 <code>ma_breakout</code>으로, 대화·분석에서는 "MA"로 불린다.
+run_id(<code>20260706_235841_ma_breakout_sim</code>)에도 박혀 있어 UI 집계 키도 갈라진다.
+<b>→ 코드·설정·문서는 전부 <code>ma</code>로 통일</b>하되, 과거 로그 CSV(수집 자산, events.csv에만 2.4만 행)는
+불변 원칙(append-only)에 따라 <b>건드리지 않고</b> 읽는 쪽(<code>ui/metrics.py</code>)에서
+<code>ma_breakout → ma</code>로 정규화한다. sim 계좌 파일은 runner 시작 시 자동 이관(기존 루트→state 이관과 같은 패턴).</p>
+
+<h3>2.2 완전/미완성 slug 미구분 — 백테스트 왜곡</h3>
+<p>엔진은 slug 종료 시점의 마지막 bid를 "만기 정산가(≈0 또는 1)"로 간주해 강제 청산한다.
+<b>완전한 slug에서만 참인 가정</b>이다. 봇을 중간에 껐다 켠 slug는 마지막 bid가 중간 가격(예: 0.6)이라
+실제로는 일어날 수 없는 손익이 계산에 섞인다. 지금까지의 모든 그리드/스윕(어제의 144조합 포함)이
+이 미완성 slug 43개를 포함한 채였다.</p>
+
+<h3>2.3 robust config 검증 절차의 한계</h3>
+<p>현재는 train(1~2월)/val(3/3+sim) 분리 + "val 음수 탈락"까지는 있으나, 어제 config 교체(0.85/0.12/0.98/t450)는
+mar03 −0.95로 경계선 통과였고, 파라미터 이웃의 안정성(plateau 여부)은 보지 않았다.
+<b>목표: 다른(미래) 시계열에 대해 테스트하기 전에, 지금 데이터 안에서 견고성을 최대한 검증한 config를 두 전략 모두에 대해 도출.</b></p>
+
+<h2>3. 데이터 인벤토리 (2026-07-14 기준, 실측)</h2>
+
+<h3>3.1 보유 slug: 총 243개</h3>
+<div class="scroll">
+<table>
+<tr><th>소스</th><th>기간/성격</th><th class="num">slugs</th><th class="num">완전</th><th class="num">미완성</th><th class="num">quotes</th><th>용도</th></tr>
+<tr><td><code>grid_jan_feb</code></td><td>1~2월 7일치 수집 (그리드 서치용)</td><td class="num">189</td><td class="num ok">161</td><td class="num bad">28</td><td class="num">147,635</td><td>train</td></tr>
+<tr><td><code>live_mar03</code></td><td>3/3 라이브 세션 (MA 실거래 4시간)</td><td class="num">18</td><td class="num ok">16</td><td class="num bad">2</td><td class="num">14,427</td><td>val</td></tr>
+<tr><td><code>sim_2607xx</code></td><td>7/6~7/13 sim 수집 (일자별 4소스)</td><td class="num">36</td><td class="num ok">23</td><td class="num bad">13</td><td class="num">27,245</td><td>val (최근 레짐)</td></tr>
+<tr><th>합계</th><th></th><th class="num">243</th><th class="num ok">200</th><th class="num bad">43</th><th class="num">189,307</th><th></th></tr>
+</table>
+</div>
+<p class="small">※ sim 일자별: 260706 4개 / 260711 1개 / 260712 5개 / 260713 26개. WORKLOG의 "33 slugs 수집"은 slug_init 이벤트 기준 카운트,
+여기 36은 quote가 1개라도 있는 slug 기준 — 정의 차이로 오차 발생 (완전성 분류가 이 모호함도 해소한다).</p>
+
+<h3>3.2 완전성 판정 기준 (이번에 확정할 규칙)</h3>
+<div class="card">
+<b>complete</b> = ① 시작 커버: 첫 quote의 <code>time_left_sec ≥ 870</code> (slug 개장 30초 내 관측 시작)
+AND ② 종료 커버: 마지막 quote의 <code>time_left_sec ≤ 15</code> (만기 15초 전까지 관측 → 마지막 bid ≈ 정산가)
+AND ③ 연속성: 내부 최대 갭 <code>≤ 60초</code> (중간에 껐다 킨 흔적 없음)
+</div>
+<p>민감도 확인: 기준을 (850/30/60), (880/10/30)으로 흔들어도 완전 slug 수는 200~201로 안정 —
+경계에 걸친 slug가 거의 없어 임계값 논쟁의 실익이 없다. 미완성 43개의 사유: 늦은 시작 21 / 이른 종료 20 / 중간 갭 5 (중복 있음).</p>
+
+<h3>3.3 현재 config (참고)</h3>
+<table>
+<tr><th>전략</th><th>핵심 파라미터</th><th>근거</th></tr>
+<tr><td><code>threshold</code></td><td>enter 0.85 / stop_drop 0.12 / tp 0.98 / cap 0.9 / t_enter 450</td><td>어제 144조합 스윕 1위 — 단 미완성 slug 포함 데이터였음 → <b>재검증 대상</b></td></tr>
+<tr><td><code>ma</code> (현 ma_breakout)</td><td>cap 0.5 / ma_len 300 / tc 0 / tp_abs 0.98</td><td>P1 시점 결정. 07-14 리뷰에서 최근 레짐 우세 확인했으나 교체는 보류 상태</td></tr>
+</table>
+
+<h2>4. 작업 계획</h2>
+
+<h3>Step 1 — 전략 이름 통일 (<code>ma_breakout</code> → <code>ma</code>)</h3>
+<table>
+<tr><th>영역</th><th>변경</th></tr>
+<tr><td>strategies/</td><td><code>ma_breakout.py</code> → <code>ma.py</code> (git mv), 클래스 <code>MABreakoutStrategy</code> → <code>MAStrategy</code>, REGISTRY 키 <code>ma</code></td></tr>
+<tr><td>configs/</td><td><code>ma_breakout.json</code> → <code>ma.json</code> (git mv), 내부 <code>strategy.name</code> 갱신</td></tr>
+<tr><td>core/</td><td>runner 기본값·도움말. sim 계좌 파일 자동 이관: <code>sim_account_ma_breakout.json</code> → <code>sim_account_ma.json</code> (집 PC에서도 pull 후 자동)</td></tr>
+<tr><td>backtest/</td><td>engine 기본값, run_grid의 config 경로·replay 호출·요약 필드</td></tr>
+<tr><td>ui/</td><td>jobs.py 매핑, index.html 문구. <b>metrics.py에 레거시 정규화</b>: 과거 run_id의 <code>ma_breakout</code>을 <code>ma</code>로 읽어 성과 집계가 하나로 합쳐지게</td></tr>
+<tr><td>tests/</td><td>테스트 파일명·임포트 갱신 + 레거시 run_id 정규화 테스트 추가</td></tr>
+<tr><td>불변</td><td><b>logs/*.csv 과거 행, backtest/results/ 기존 아카이브는 수정하지 않는다</b> (수집 자산 append-only 원칙)</td></tr>
+</table>
+
+<h3>Step 2 — 완전/미완성 slug 분리</h3>
+<ul>
+<li><code>data_prep.py</code>: slug별 커버리지 계산 → parquet에 <code>complete</code>(bool) 컬럼 추가, 빌드 시 소스별 완전/미완성 집계 출력</li>
+<li><code>engine.py</code>: 기본은 <b>완전 slug만 리플레이</b>. <code>--include-partial</code> 플래그로 과거 수치와 비교 가능. 결과 JSON에 사용 slug 수(complete/partial) 명시</li>
+<li><code>sweep_threshold.py</code>·<code>run_grid.py</code>: 같은 필터 적용. 미완성 제외 건수를 출력에 표기 (조용한 탈락 금지)</li>
+<li>tests/에 완전성 판정 단위 테스트 추가</li>
+</ul>
+
+<h3>Step 3 — 양 전략 스윕 → robust config 도출</h3>
+<ul>
+<li>완전 slug 200개 기준으로 <b>threshold 144조합 + ma 그리드</b> 재실행 (비용 모델 동일: haircut 0.01 / p_fail 0.2)</li>
+<li>robust 판정 3중 기준:
+  <ol>
+  <li><b>전 소스 비음수 지향</b> — janfeb(train) 점수순이되 val(mar03+sim) 음수 탈락 (기존 규칙 유지)</li>
+  <li><b>이웃 안정성(plateau)</b> — 채택 후보의 인접 조합(각 축 ±1스텝)이 급락하지 않을 것 (스파이크 최적값 배제)</li>
+  <li><b>완전 slug 전용 수치로 어제 결정 재검증</b> — 미완성 43개를 빼고도 0.85/0.12/0.98/t450이 여전히 1위인가</li>
+  </ol></li>
+<li>산출물: 전략별 추천 config + 근거 표. <b>configs/ 반영은 검증 통과 시에만</b> (통과 못 하면 현행 유지 + 사유 기록)</li>
+</ul>
+
+<h3>Step 4 — 문서 반영 (새 .md 없음)</h3>
+<table>
+<tr><th>문서</th><th>갱신 내용</th></tr>
+<tr><td>SPEC.md</td><td>전략명 표기, §9 백테스트에 완전성 필터 정의</td></tr>
+<tr><td>WORKLOG.md</td><td>결정 D#(이름 통일 / 완전성 기준 / robust 판정 기준 / reports 폴더) + 진행 로그 + 로드맵 반영</td></tr>
+<tr><td>backtest/README.md</td><td>파이프라인에 완전성 필터 단계, 검증 규칙에 plateau 기준 추가</td></tr>
+<tr><td>CLAUDE.md</td><td>구조 트리·실행 예시의 전략명, reports/ 폴더 한 줄</td></tr>
+<tr><td>DOCS.md</td><td>reports/ 폴더 안내 한 줄 (문서 5개 체계는 유지 — 보고서는 문서가 아니라 산출물)</td></tr>
+</table>
+
+<h3>Step 5 — 사후 보고서</h3>
+<p><code>reports/20260714_backtest_cleanup_result.html</code> — 실제 한 일, 스윕 결과 표, 채택/보류 결정과 근거.</p>
+
+<h2>5. 이번에 확정하는 규칙 (제안)</h2>
+<ol>
+<li><b>이름</b>: 전략 정식명은 <code>threshold</code>, <code>ma</code>. 과거 기록은 불변, 읽기 시점 정규화.</li>
+<li><b>완전성</b>: complete = 시작 tleft ≥ 870 ∧ 종료 tleft ≤ 15 ∧ 최대 갭 ≤ 60s. <b>백테스트 기본값은 complete-only.</b></li>
+<li><b>robust config</b>: train 점수 + val 비음수 + 이웃 plateau. 세 가지를 모두 만족해야 configs/ 반영.</li>
+<li><b>보고서</b>: <code>reports/&lt;YYYYMMDD&gt;_&lt;주제&gt;_{plan|result}.html</code>, git 추적 (집↔회사 공유). 기존 문서 5개 체계는 불변.</li>
+</ol>
+
+<h2>6. 리스크 / 주의</h2>
+<ul>
+<li><span class="warn">과거 결과와의 단절</span> — complete-only 전환으로 어제까지의 수치(sim −13.2 등)와 직접 비교가 안 됨. 전환 시점에 신·구 기준 수치를 한 번 나란히 기록해 브리지를 남긴다.</li>
+<li><span class="warn">이름 변경 중 실행 충돌</span> — 확인 결과 이 머신에 실행 중인 봇 없음(logs/ctl 부재). 집 PC도 pull 전 봇 정지 필요 — 사후 보고서에 명시.</li>
+<li><span class="warn">sim 이월 포지션 버그(P2)는 이번 범위 밖</span> — 백테스트 엔진은 slug별 리셋이라 무관하지만, sim 실측 로그의 왜곡(threshold −3.5~−8.8 과소)은 여전하므로 sim 소스 해석 시 감안.</li>
+<li><span class="warn">ma 그리드는 3,600조합 × 리플레이</span> — 풀 그리드는 10분+ 소요. 완전 slug 필터로 데이터가 줄어 다소 단축 예상.</li>
+</ul>
+
+<p class="meta">작업 완료 후 같은 폴더의 result 보고서에서 이 계획 대비 실제 결과를 대조한다.</p>
+
+</body>
+</html>

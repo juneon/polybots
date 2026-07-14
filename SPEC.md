@@ -28,7 +28,7 @@ polybots/
 │   └─ contracts.py               Executor/Account Protocol (덕타이핑 계약 문서화)
 ├─ strategies/                ★ 전략 플러그인 — 1전략 = 1파일. base.py 인터페이스만 알면 됨
 │   ├─ base.py                    on_event(관찰→주문의도) / on_trade(체결 피드백) / debug_state
-│   ├─ threshold.py · ma_breakout.py
+│   ├─ threshold.py · ma.py
 │   └─ __init__.py                REGISTRY — 전략 등록부 (여기 1줄 추가로 CLI/UI/백테스트에 자동 인식)
 ├─ configs/                   ★ 전략별 설정 (<전략>.json) + backups/ (UI 저장 시 자동 백업)
 ├─ backtest/                  ★ 검증 도구 — 코드를 바꾸기 전/후 기대값 확인
@@ -46,6 +46,7 @@ polybots/
 ├─ logs/                      런타임 산출물 (gitignore): events/trades/snapshots.csv (append+run_id)
 │   └─ ctl/                       heartbeat(*.status.json) · stop-file · 봇/job stdout 로그
 ├─ state/                     sim 계좌 등 런타임 상태 파일 (gitignore, 구 루트 파일은 시작 시 자동 이관)
+├─ reports/                   작업 단위 보고서 HTML (git track) — 계획/결과 쌍, 문서 5개 체계와 별개
 ├─ archive/                   리팩토링 이전 레거시 3폴더 (읽기 전용, 각자 git — 새 작업 금지)
 └─ 문서 5개                    CLAUDE(규칙) SPEC(본 문서) WORKLOG(결정·로드맵) DOCS(문서 맵) backtest/README(절차)
 ```
@@ -179,7 +180,7 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 - `on_trade(trade) -> None` — 체결 피드백. **filled 확인 후에만** 내부 카운터/락/쿨다운 갱신.
 - `debug_state(slug) -> dict` — printer용 읽기 전용 상태 (선택).
 
-### 6.2 ma_breakout (구 polybots_MA) — `configs/ma_breakout.json`
+### 6.2 ma (구 polybots_MA — 2026-07-14 `ma_breakout`에서 개명) — `configs/ma.json`
 
 백테스트 근거: 2026-01~02 7일치 그리드 서치 최적값 (cap=0.5, ma=300, tc=0, cd=0 → PnL $81.7, score 73.7).
 
@@ -239,6 +240,7 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 ## 8. Logging 정책
 
 - 모든 CSV는 **append 모드** — 실행해도 과거 기록이 지워지지 않는다. `run_id` 컬럼으로 실행 구분.
+- 전략 개명 시 과거 행은 재작성하지 않는다 — 옛 run_id의 `ma_breakout`은 읽기 시점에 `ma`로 정규화 (`ui.metrics.LEGACY_STRATEGY_NAMES`, sim 계좌 파일은 `core.runner`가 시작 시 자동 이관).
 - `events.csv`: 원본 이벤트(JSON 통째). 백테스트 데이터 수집원. slug 경계에서만 flush.
 - `trades.csv`: intent+trade 결합 1행. 즉시 flush.
 - `snapshots.csv`: filled 발생 tick의 계좌 스냅샷. 즉시 기록.
@@ -246,7 +248,8 @@ python -m core.runner --strategy <name> --mode <sim|live> [--config path]
 ## 9. Backtest (2026-07-12 엔진 통일)
 
 - `backtest/engine.py`가 **유일한 엔진** — 실제 `strategies/` 코드를 on_event/on_trade 파이프라인 그대로 리플레이 + 비용 모델(BUY=intent가, SELL=bid−haircut, p_fail 확률 거부). `from engine import replay, prepare_slugs`.
-- `run_grid.py`(ma_breakout 그리드)와 `sweep_threshold.py`(threshold 스윕)는 engine.replay의 fan-out — **전략 로직 재구현 없음** (구 backtest.py는 폐기, git 이력 참조).
+- `run_grid.py`(ma 그리드)와 `sweep_threshold.py`(threshold 스윕)는 engine.replay의 fan-out — **전략 로직 재구현 없음** (구 backtest.py는 폐기, git 이력 참조).
+- **slug 완전성 필터 (2026-07-14)**: data_prep이 slug별 `complete` 플래그를 기록 (시작 tleft ≥ 870 ∧ 종료 tleft ≤ 15 ∧ 내부 갭 ≤ 60초). 엔진의 만기 강제청산(마지막 bid ≈ 정산가)은 완전 slug에서만 참이므로 **백테스트 기본은 complete-only** — 미완성 slug는 `--include-partial`로만 포함(과거 수치 비교용).
 - 모든 스크립트가 `--json <path>` 요약 출력 → UI Backtest 탭이 `backtest/results/`에 아카이브.
 - 파이프라인 절차 / 비용 캘리브레이션 / train-val 검증 규칙: `backtest/README.md`.
 

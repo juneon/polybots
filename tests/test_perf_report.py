@@ -23,7 +23,9 @@ def row(run_id, slug, kind, qty, px, ts=1000, status="filled"):
 
 
 def test_run_id_parsing_with_underscored_strategy():
-    assert strategy_of_run_id("20260711_120000_ma_breakout_sim") == "ma_breakout"
+    # legacy name in old logs normalizes to the current registry name
+    assert strategy_of_run_id("20260711_120000_ma_breakout_sim") == "ma"
+    assert strategy_of_run_id("20260714_120000_ma_sim") == "ma"
     assert mode_of_run_id("20260711_120000_ma_breakout_sim") == "sim"
     assert mode_of_run_id("20260711_120000_threshold_live") == "live"
     assert strategy_of_run_id("weird") == "weird"

@@ -1,13 +1,13 @@
-# tests/test_ma_breakout_strategy.py
-"""ma_breakout: entry on ask cross-up under cap, exit_armed latch re-emits the
+# tests/test_ma_strategy.py
+"""ma: entry on ask cross-up under cap, exit_armed latch re-emits the
 sell until the fill confirms, buy_inflight blocks stacking but a rejected buy
 retries — all state transitions happen in on_trade (confirmed feedback only)."""
-from strategies.ma_breakout import MABreakoutStrategy
+from strategies.ma import MAStrategy
 
 from helpers import FakeAccount, quote_ev, trade
 
 CFG = {"strategy": {
-    "name": "ma_breakout", "qty_tokens": 10,
+    "name": "ma", "qty_tokens": 10,
     "cap": 0.5, "ma_len": 2, "tick_confirm": 0,
     "cooldown_sec": 0, "no_entry_last_sec": None, "tp_abs": None,
 }}
@@ -17,7 +17,7 @@ DN = (0.15, 0.95)
 
 
 def make():
-    return MABreakoutStrategy(CFG), FakeAccount()
+    return MAStrategy(CFG), FakeAccount()
 
 
 def feed(st, acc, tick, up):
@@ -61,7 +61,7 @@ def test_exit_latch_reemits_until_fill():
 def test_tp_abs_outranks_ma_exit():
     st, acc = make()
     st_cfg = dict(CFG["strategy"], tp_abs=0.98)
-    st = MABreakoutStrategy({"strategy": st_cfg})
+    st = MAStrategy({"strategy": st_cfg})
     acc.position = {"side": "up", "entry": 0.45, "qty_tokens": 10.0}
     feed(st, acc, 1, (0.97, 0.99))
     out = feed(st, acc, 2, (0.98, 0.99))

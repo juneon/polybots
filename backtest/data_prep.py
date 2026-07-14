@@ -10,8 +10,16 @@ Sources (old format: type,slug,tick,ts,data / new format adds run_id):
                                   engine reports per-day PnL: sim_260712, sim_260713, ...)
 
 Output: backtest/data/quotes_all.parquet
-  columns: source, slug, tick, ts, time_left_sec, up_bid, up_ask, down_bid, down_ask
+  columns: source, slug, tick, ts, time_left_sec, up_bid, up_ask, down_bid, down_ask,
+           complete (bool, per slug — see below)
   deduped on (slug, time_left_sec), sorted by (slug, ts).
+
+Slug completeness (2026-07-14): a slug is `complete` when its recording covers
+the whole 15-minute game — first quote at time_left >= 870 (observed within 30s
+of open), last quote at time_left <= 15 (so the final bid ~= settlement), and no
+internal gap > 60s (no mid-slug restart). The engine force-closes open positions
+at the last bid as a settlement proxy, which is only truthful for complete
+slugs; partial slugs are excluded from backtests by default (engine.prepare_slugs).
 
 Time axis: time_left_sec is the only trustworthy clock. tick is a per-run global
 counter — two bots recording the same slug, or a restart mid-slug, produce tick
@@ -36,6 +44,25 @@ SOURCES = [
 ]
 
 OUT = Path(__file__).parent / "data" / "quotes_all.parquet"
+
+# slug completeness rule (thresholds are insensitive: 200/243 slugs qualify
+# under (870/15/60), 200-201 under (850/30/60) or (880/10/30) — 2026-07-14)
+COMPLETE_FIRST_TLEFT = 870   # recording starts within 30s of slug open
+COMPLETE_LAST_TLEFT = 15     # recording reaches within 15s of expiry
+COMPLETE_MAX_GAP_SEC = 60    # no mid-slug hole (bot restart) longer than this
+
+
+def flag_complete(df: pd.DataFrame) -> pd.DataFrame:
+    """Add a per-slug `complete` bool column (df must be deduped on time_left)."""
+    def _is_complete(t: pd.Series) -> bool:
+        t = t.sort_values(ascending=False).to_numpy()
+        gap = int((t[:-1] - t[1:]).max()) if len(t) > 1 else 0
+        return bool(t[0] >= COMPLETE_FIRST_TLEFT and t[-1] <= COMPLETE_LAST_TLEFT
+                    and gap <= COMPLETE_MAX_GAP_SEC)
+
+    ok = df.groupby("slug")["time_left_sec"].apply(_is_complete)
+    df["complete"] = df["slug"].map(ok)
+    return df
 
 
 def _sim_day_source(slug_start: int) -> str:
@@ -98,8 +125,16 @@ def build() -> pd.DataFrame:
     # dedup on the real clock, NOT tick (see module docstring on the time axis)
     df = df.drop_duplicates(subset=["slug", "time_left_sec"], keep="first")
     df = df.sort_values(["slug", "ts"]).reset_index(drop=True)
+    df = flag_complete(df)
     print(f"\ntotal {before} -> deduped {len(df)} quotes, {df['slug'].nunique()} slugs")
-    print(df.groupby("source").agg(quotes=("slug", "size"), slugs=("slug", "nunique")).to_string())
+    per_slug = df.drop_duplicates("slug")
+    print(df.groupby("source").agg(quotes=("slug", "size"), slugs=("slug", "nunique"))
+            .join(per_slug.groupby("source")["complete"]
+                  .agg(complete="sum", partial=lambda s: int((~s).sum()))).to_string())
+    n_c = int(per_slug["complete"].sum())
+    print(f"complete {n_c} / partial {len(per_slug) - n_c} "
+          f"(rule: first tleft>={COMPLETE_FIRST_TLEFT}, last<={COMPLETE_LAST_TLEFT}, "
+          f"gap<={COMPLETE_MAX_GAP_SEC}s)")
     return df
 
 

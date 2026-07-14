@@ -2,9 +2,9 @@
 """Orchestrator: wires config -> adapter -> slug_loop -> strategy -> executor -> account -> logger/printer.
 
 Usage (from the polybots root):
-    python -m core.runner --strategy ma_breakout --mode sim
-    python -m core.runner --strategy threshold   --mode sim
-    python -m core.runner --strategy ma_breakout --mode live      # REAL ORDERS
+    python -m core.runner --strategy ma        --mode sim
+    python -m core.runner --strategy threshold --mode sim
+    python -m core.runner --strategy ma        --mode live        # REAL ORDERS
 
 - mode defaults to "sim"; live trading requires an explicit --mode live.
 - config defaults to configs/<strategy>.json (override with --config).
@@ -34,14 +34,24 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / "state"   # runtime state files (sim accounts), gitignored
 
 
+# strategies renamed over time: current name -> old state/log name
+LEGACY_STRATEGY_NAMES = {"ma": "ma_breakout"}
+
+
 def _sim_account_path(strategy_name: str) -> Path:
-    """state/sim_account_<strategy>.json — migrates the old root-level file once."""
+    """state/sim_account_<strategy>.json — migrates old locations/names once."""
     STATE_DIR.mkdir(exist_ok=True)
     path = STATE_DIR / f"sim_account_{strategy_name}.json"
-    legacy = ROOT / f"sim_account_{strategy_name}.json"
-    if not path.exists() and legacy.exists():
-        legacy.replace(path)
-        log.info("migrated %s -> %s", legacy.name, path)
+    old_name = LEGACY_STRATEGY_NAMES.get(strategy_name)
+    legacies = [ROOT / f"sim_account_{strategy_name}.json"]
+    if old_name:
+        legacies += [STATE_DIR / f"sim_account_{old_name}.json", ROOT / f"sim_account_{old_name}.json"]
+    for legacy in legacies:
+        if path.exists():
+            break
+        if legacy.exists():
+            legacy.replace(path)
+            log.info("migrated %s -> %s", legacy.name, path)
     return path
 
 
@@ -146,8 +156,8 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description="polybots runner")
-    ap.add_argument("--strategy", default="ma_breakout", choices=sorted(REGISTRY),
-                    help="strategy name (default: ma_breakout)")
+    ap.add_argument("--strategy", default="ma", choices=sorted(REGISTRY),
+                    help="strategy name (default: ma)")
     ap.add_argument("--mode", default="sim", choices=["sim", "live"],
                     help="sim (default) or live — live places REAL orders")
     ap.add_argument("--config", default=None,

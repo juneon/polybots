@@ -11,7 +11,10 @@
                   (시간축은 time_left_sec — tick은 run 전역 카운터라 다중 run/재시작 시
                    순서가 깨짐(2026-07-13). dedup·정렬 모두 time_left 기준.
                    sim 수집분은 UTC 일자별 소스로 분리: sim_260712, sim_260713, ...)
-③ 폭넓은 탐색     python run_grid.py            (ma_breakout 그리드, 3,600조합 — 엔진 fan-out)
+                  slug별 완전성 플래그(2026-07-14): complete = 시작 tleft≥870 ∧ 종료 tleft≤15
+                   ∧ 내부 갭≤60s. 엔진의 만기 강제청산은 완전 slug에서만 참 →
+                   ③④는 기본 complete-only, --include-partial로만 미완성 포함
+③ 폭넓은 탐색     python run_grid.py            (ma 그리드, 3,600조합 — 엔진 fan-out)
                   python sweep_threshold.py     (threshold 스윕 — 엔진 직접 호출)
 ④ 정밀 검증       python engine.py --strategy <name> --set key=val ...
 
@@ -31,8 +34,11 @@
 
 ## 검증 규칙
 
-- **train/val 분리**: 1~2월(189 slugs)로 선정, 3/3 라이브(18 slugs)로 out-of-sample 확인.
+- **train/val 분리**: 1~2월(완전 161 slugs)로 선정, 3/3 라이브 + sim 수집분으로 out-of-sample 확인.
   val이 음수인 조합은 train 점수가 높아도 탈락.
+- **robust 3중 기준 (2026-07-14, config 반영 조건)**: ① train 점수 상위 ② val ≥ 0
+  ③ 이웃 안정성 — 인접 조합(각 축 ±1스텝)이 급락하지 않을 것 (스파이크 최적값 배제).
+  셋 다 만족해야 configs/ 반영. 미달이면 현행 유지 + 사유를 WORKLOG에 기록.
 - 엔진 신뢰도 근거: 3/3 데이터 리플레이 −$29.92 ≈ 실거래 −$27.30 (2026-07-07 검증).
 - 무비용 백테스트 수치는 참고용으로만 (구 grid_results.csv가 그 산물 — cap0.5/ma300이
   +$81.66이었지만 비용 반영 시 전 기간 −$5.18로 붕괴한 전례).
@@ -41,9 +47,9 @@
 
 | 파일 | 역할 |
 |---|---|
-| `engine.py` | 유일한 백테스트 엔진 — 실제 전략 클래스 리플레이 + 비용/실패 모델. `from engine import replay, prepare_slugs` |
-| `data_prep.py` | 이벤트 CSV들 → `data/quotes_all.parquet` 통합 |
-| `run_grid.py` | ma_breakout 그리드 = engine.replay를 프로세스풀로 fan-out (train/val 분리, 헤어컷 민감도, `--quick` 스모크) |
+| `engine.py` | 유일한 백테스트 엔진 — 실제 전략 클래스 리플레이 + 비용/실패 모델. `from engine import replay, prepare_slugs` (prepare_slugs가 완전성 필터 담당) |
+| `data_prep.py` | 이벤트 CSV들 → `data/quotes_all.parquet` 통합 + slug 완전성 플래그 |
+| `run_grid.py` | ma 그리드 = engine.replay를 프로세스풀로 fan-out (train/val 분리, 헤어컷 민감도, `--quick` 스모크) |
 | `sweep_threshold.py` | threshold 스윕 = engine.replay 직접 호출 |
 | `data/` | 원본 이벤트 CSV(git 추적: `*_events.csv` = 1~2월 그리드, `mar03_live.csv` = 3/3 라이브 승격본) + 통합 parquet(gitignore, 재생성 가능) |
 

@@ -1,5 +1,8 @@
-# strategies/ma_breakout.py
+# strategies/ma.py
 """MA breakout + cap strategy (backtest-derived: cap=0.5, ma_len=300, tick_confirm=0).
+
+Registry name: "ma" (renamed from "ma_breakout" 2026-07-14 — old run_ids in
+logs/*.csv keep the long name; readers normalize via ui.metrics).
 
 Entry (flat only):
   - a side qualifies when its ask <= cap AND the ask crosses UP through its ask-SMA
@@ -62,7 +65,7 @@ class RollingSMA:
         return self.total / self.window
 
 
-class MABreakoutStrategy(BaseStrategy):
+class MAStrategy(BaseStrategy):
     def __init__(self, cfg: Dict[str, Any]):
         scfg = cfg.get("strategy") or {}
         self.cfg = MAConfig(
