@@ -523,8 +523,13 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - `run_grid.py` 7축으로: **`entry_slope_max` {none, 0, −0.005, −0.01}** + cap {0.7, 0.6 추가} + ma_len {600 추가} = **24,192조합**
 - val 집계 정정: 기존 val_pnl=mar03만 → `mar03_pnl`/`sim_pnl` 분리 컬럼 + **val_pnl=mar03+sim** (D23 ②를 표에서 직접 읽음. 07-14 그리드의 "oos −15.11"은 수동 계산이었음 — 정식화)
 - quick 32조합 스모크: **상위 8개 전부 slope −0.005** (동일 조합 train 16.4→51.2, sim +1.7→+5.8) — H1 방향이 실엔진에서 재현. 단 mar03은 여전히 음수 → 풀 그리드로 판정
-- **풀 그리드 진행 중** (18시 현재 ~50%, cap 0.7/0.6 신규 구간이 리플레이 무거워 완주는 저녁 예상) → 결과: `backtest/results/20260715_155700_grid_ma.{csv,json}` (gitignore — 내일 회사에서 판정). **내일 할 일: D23 3중 기준 판정 + result 리포트**(`reports/20260715_ma_grid_slope_result.html`, 민감도 차트 포함) + WORKLOG 갱신
-- 교훈: 24k 일괄 확장은 과했음 — 다음엔 신규 축만 좁게 스크리닝 후 유망 영역만 풀 그리드
+- **풀 그리드는 56.1%(13,575/24,192)에서 의도적 중단** (퇴근/PC off. cap 0.7/0.6 신규 구간이 무거워 rate 2.0/s — 완주엔 총 ~3.4h짜리였음). ⚠️ **run_grid는 완주 시에만 저장하므로 부분 결과는 유실** — 결과 파일 없음, 재개 = 처음부터 재실행뿐
+- **재실행 절차 (다음 세션 — 집/회사 무관, 이 문서만 있으면 됨)**:
+  1. (권장 선행, ~10분) run_grid에 **증분 체크포인트** 추가: 콤보별 결과를 `--out` CSV에 즉시 append + 시작 시 기존 CSV의 완료 콤보 skip → 같은 `--out`으로 재실행하면 이어짐. 이번 같은 중간 퇴근에도 안전
+  2. `python backtest\data_prep.py` (parquet 재생성) → `cd backtest && python run_grid.py --workers 12 --out results/<ts>_grid_ma.csv --json results/<ts>_grid_ma.json`
+  3. 완료 후: **D23 3중 기준 판정 + result 리포트**(`reports/20260715_ma_grid_slope_result.html`, 민감도 차트) + WORKLOG 갱신. 가설 H1~H3은 plan 리포트에 등록돼 있음
+- 중단 시점 스냅샷: 선두 cap0.7/ma300/tc0/tp없음/cd0/ban없음 train_score 49.19 / **val −12.75 (D23 ② 미달)** — train 순 선두일 뿐 판정 무의미. quick 스모크의 "top8 전부 slope −0.005" 신호는 유효
+- 교훈: 24k 일괄 확장은 과했음 — 다음엔 신규 축만 좁게 스크리닝 후 유망 영역만 풀 그리드 + 장시간 작업은 증분 저장부터
 
 **P2 "exit_tp 스윕 경로" 확인 완료** (로드맵 체크 처리): 리팩토링에서 이미 전 SELL이 IOC 스윕 경로였음 — exit_tp는 트리거 시점 bid를 limit가로 스윕 + 레벨트리거 재발화라 3/3 "FAK 한 방 no-match" 구조 해소 상태. `tests/test_executor_live.py` 6개로 라우팅·가격·부분체결 합산·dust/타임아웃/allowance 규칙 고정 (CLOB 클라이언트 모킹, .env 불필요). **부산물**: no-match 시 스윕이 고정가로 창 전체(10s)를 소진하며 메인 루프 블로킹 — P2 스레드 분리 항목에 최악 사례로 메모.
 
