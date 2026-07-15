@@ -13,13 +13,13 @@ Cost model = engine.ReplayExecutor (calibrated from the 2026-03-03 live session)
   - each SELL attempt fails with prob p_fail (default 0.2, seeded RNG)
   - slug end: open position force-closes at last bid (~resolution value)
 
-Train/validation split (unchanged from v1):
-  - TRAIN = grid_jan_feb source -> parameter selection
-  - VAL   = live_mar03 source   -> out-of-sample check
+Train/validation split:
+  - TRAIN = grid_jan_feb source          -> parameter selection
+  - VAL   = live_mar03 + sim_* sources   -> out-of-sample check (mar03_pnl / sim_pnl split out)
 
 Run from backtest/ (after data_prep.py):
-    python run_grid.py                   # full grid (~3600 combos, ~1.1s each / pool)
-    python run_grid.py --quick           # 16-combo smoke grid, no sensitivity pass
+    python run_grid.py                   # full grid (~24k combos, ~1.1s each / pool)
+    python run_grid.py --quick           # 32-combo smoke grid, no sensitivity pass
     python run_grid.py --json out.json   # machine-readable summary (for UI jobs)
 Output: grid_results_realistic.csv + report tables.
 """
@@ -40,12 +40,13 @@ OUT_CSV = "results/grid_results_realistic.csv"
 
 # ====== grid axes — REAL strategy config keys (strategies/ma.py) ======
 GRID = {
-    "cap": [0.5, 0.45, 0.4, 0.35, 0.3],
-    "ma_len": [120, 200, 240, 300, 480],
+    "cap": [0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3],
+    "ma_len": [120, 200, 240, 300, 480, 600],
     "tick_confirm": [0, 2, 3],
     "tp_abs": [None, 0.95, 0.98, 0.99],
     "cooldown_sec": [0, 30, 60, 90],
     "no_entry_last_sec": [None, 80, 100],
+    "entry_slope_max": [None, 0, -0.005, -0.01],
 }
 QUICK_GRID = {
     "cap": [0.5, 0.4],
@@ -54,18 +55,21 @@ QUICK_GRID = {
     "tp_abs": [None, 0.98],
     "cooldown_sec": [0, 60],
     "no_entry_last_sec": [None, 80],
+    "entry_slope_max": [None, -0.005],
 }
 
 # the old frictionless optimum — always evaluated for comparison
 OLD_OPTIMUM = {"cap": 0.5, "ma_len": 300, "tick_confirm": 0, "tp_abs": None,
-               "cooldown_sec": 0, "no_entry_last_sec": None}
+               "cooldown_sec": 0, "no_entry_last_sec": None,
+               "entry_slope_max": None}
 
 # sell_haircut sensitivity sweep for the top candidates
 HAIRCUT_SENS = [0.0, 0.005, 0.01, 0.02, 0.03]
 TOP_N_SENS = 15
 
 PARAM_COLS = list(GRID.keys())
-REPORT_COLS = PARAM_COLS + ["haircut", "trades", "train_pnl", "train_mdd", "train_score", "val_pnl"]
+REPORT_COLS = PARAM_COLS + ["haircut", "trades", "train_pnl", "train_mdd", "train_score",
+                            "mar03_pnl", "sim_pnl", "val_pnl"]
 
 
 def calc_mdd(pnls):
@@ -86,7 +90,8 @@ def _init_worker(data_path, p_fail, seed, include_partial=False):
     _G["slugs"] = prepare_slugs(quotes, include_partial=include_partial)
     by_src = quotes.drop_duplicates("slug")[["slug", "source"]]
     _G["train"] = set(by_src.loc[by_src["source"] == "grid_jan_feb", "slug"])
-    _G["val"] = set(by_src.loc[by_src["source"] == "live_mar03", "slug"])
+    _G["mar03"] = set(by_src.loc[by_src["source"] == "live_mar03", "slug"])
+    _G["sim"] = set(by_src.loc[by_src["source"].str.startswith("sim"), "slug"])
     _G["base_cfg"] = json.loads((ROOT / "configs" / "ma.json").read_text(encoding="utf-8"))
     _G["p_fail"] = p_fail
     _G["seed"] = seed
@@ -102,8 +107,9 @@ def _eval_combo(job):
 
     # per_slug preserves slug order -> MDD over an ordered equity path
     tr = [v for s, v in r["per_slug"].items() if s in _G["train"]]
-    va = [v for s, v in r["per_slug"].items() if s in _G["val"]]
-    tr_pnl, va_pnl = float(np.sum(tr)), float(np.sum(va))
+    m3 = [v for s, v in r["per_slug"].items() if s in _G["mar03"]]
+    si = [v for s, v in r["per_slug"].items() if s in _G["sim"]]
+    tr_pnl, m3_pnl, si_pnl = float(np.sum(tr)), float(np.sum(m3)), float(np.sum(si))
     tr_mdd = calc_mdd(tr)
 
     row = {k: ("none" if params[k] is None else params[k]) for k in params}
@@ -111,7 +117,8 @@ def _eval_combo(job):
         "haircut": haircut, "trades": r["fills"],
         "train_pnl": tr_pnl, "train_mdd": tr_mdd,
         "train_score": tr_pnl - 0.5 * abs(tr_mdd),
-        "val_pnl": va_pnl, "total_pnl": r["total_pnl"],
+        "mar03_pnl": m3_pnl, "sim_pnl": si_pnl,
+        "val_pnl": m3_pnl + si_pnl, "total_pnl": r["total_pnl"],
         "sell_fail_rate": round(r["sell_fail_rate"], 3),
     })
     return row

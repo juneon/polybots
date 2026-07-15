@@ -54,8 +54,8 @@
 - **P1 — 백테스트 현실화** ✅ (2026-07-07): 비용 캘리브레이션(haircut 0.01 / p_fail 0.2) — 엔진이 3/3 실거래를 ±$2.6로 재현. 판정: MA 라이브 부적합, threshold 주력 후보(tp 0.99)
 - **P2 — 실행 품질** (live 손실 요인 제거, live 재개 전 필수 — core 작업):
   - [ ] `sell_dust:below_step` 대응 — 리팩토링 반영분(청산 실패 시 다음 tick 재발행) 라이브 검증
-  - [ ] exit_tp도 스윕 경로로 (3/3에서 FAK no-match로 익절 실패 1건)
-  - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리
+  - [x] exit_tp도 스윕 경로로 ✅ 2026-07-15 확인: 리팩토링에서 이미 **모든 SELL이 IOC 스윕 경로** (executor_live.fill → _sell_sweep_ioc). exit_tp는 트리거 시점 bid를 limit가로 IOC 스윕 + 레벨트리거 재발화라 3/3의 "FAK 한 방 no-match" 구조 해소됨. `tests/test_executor_live.py`(6개)로 라우팅·가격 규칙 고정. 라이브 실측 확인만 1번 항목과 함께 남음
+  - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리 — 최악 사례: exit_tp no-match 시 스윕이 고정가로 창 전체(10s)를 소진하며 블로킹 (2026-07-15 분석)
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
   - [ ] maker 진입 검토 — `execution.buy: "limit"` 경로로 스프레드 회수 (왕복비용 ~$0.02가 유일한 확정 마이너스: 2026-07-14 캘리브레이션 스터디). adverse selection은 live 소액 실측으로
   - [x] **sim 이월 포지션 정산 처리** ✅ 2026-07-14 저녁 — 마지막 bid 강제 장부 마감(exit_expiry) + 교차 slug exit 차단 + stale write-off (SPEC §4.5). 과거 실측 3건(MA +5.3 과대 / threshold −3.5~−8.8 과소)의 장부는 소급 수정 안 함
@@ -514,3 +514,18 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 3. **P2에 추가**: maker 진입 검토(`execution.buy: "limit"` 경로 활용) — 왕복 ~$0.02가 유일한 확정 마이너스, 스프레드 절반 회수 가능. adverse selection 리스크는 live 소액에서 실측
 4. 레짐 게이트: 기각. 재진입 포함 실전략 기준으로 재판정 때 1회만 재확인
 5. sim이 전 밴드 −EV인 현 레짐에서는 **파라미터 교체보다 표본 확충이 계속 우선** (수집 중단 금지)
+
+### 2026-07-15 (회사) — 수집 이어받기 + ma 그리드 slope 축 확장(풀 그리드 진행 중) + P2 exit_tp 확인
+
+**수집**: pull(집 4커밋) 재현 확인 후 threshold sim 재개(run 20260715_154502, 15:45~17:57 그레이스풀 정지, 이월 포지션 없음). 정지 시점 **완전 35/60** (관측 threshold 52 / ma 36). 집에서 pull 후 이어받기.
+
+**ma 그리드 확장** (심야 스크리닝 후속 — 예약분 실행. plan: `reports/20260715_ma_grid_slope_plan.html`, 가설 H1~H3 사전 등록):
+- `run_grid.py` 7축으로: **`entry_slope_max` {none, 0, −0.005, −0.01}** + cap {0.7, 0.6 추가} + ma_len {600 추가} = **24,192조합**
+- val 집계 정정: 기존 val_pnl=mar03만 → `mar03_pnl`/`sim_pnl` 분리 컬럼 + **val_pnl=mar03+sim** (D23 ②를 표에서 직접 읽음. 07-14 그리드의 "oos −15.11"은 수동 계산이었음 — 정식화)
+- quick 32조합 스모크: **상위 8개 전부 slope −0.005** (동일 조합 train 16.4→51.2, sim +1.7→+5.8) — H1 방향이 실엔진에서 재현. 단 mar03은 여전히 음수 → 풀 그리드로 판정
+- **풀 그리드 진행 중** (18시 현재 ~50%, cap 0.7/0.6 신규 구간이 리플레이 무거워 완주는 저녁 예상) → 결과: `backtest/results/20260715_155700_grid_ma.{csv,json}` (gitignore — 내일 회사에서 판정). **내일 할 일: D23 3중 기준 판정 + result 리포트**(`reports/20260715_ma_grid_slope_result.html`, 민감도 차트 포함) + WORKLOG 갱신
+- 교훈: 24k 일괄 확장은 과했음 — 다음엔 신규 축만 좁게 스크리닝 후 유망 영역만 풀 그리드
+
+**P2 "exit_tp 스윕 경로" 확인 완료** (로드맵 체크 처리): 리팩토링에서 이미 전 SELL이 IOC 스윕 경로였음 — exit_tp는 트리거 시점 bid를 limit가로 스윕 + 레벨트리거 재발화라 3/3 "FAK 한 방 no-match" 구조 해소 상태. `tests/test_executor_live.py` 6개로 라우팅·가격·부분체결 합산·dust/타임아웃/allowance 규칙 고정 (CLOB 클라이언트 모킹, .env 불필요). **부산물**: no-match 시 스윕이 고정가로 창 전체(10s)를 소진하며 메인 루프 블로킹 — P2 스레드 분리 항목에 최악 사례로 메모.
+
+테스트 74 → **80**. 다음 세션(집): pull → 수집 재개. 그리드 판정은 회사 PC 결과 파일 기준(내일).

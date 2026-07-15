@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사전 보고서 — ma 그리드 확장: entry_slope_max 축 (2026-07-15)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #e2e6ea;
+    --accent: #0b6bcb; --warn: #b4540a; --ok: #1a7f37; --bad: #c0392b;
+    --card: #f6f8fa; --code: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #9aa4ae; --line: #2b3238;
+      --accent: #5aa2e8; --warn: #e0a05a; --ok: #62c481; --bad: #e0705a;
+      --card: #1c2126; --code: #232930;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 920px; padding: 32px 20px 80px;
+         font: 15px/1.7 "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.6em; border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+  h2 { font-size: 1.25em; margin-top: 2.2em; border-left: 4px solid var(--accent); padding-left: 10px; }
+  .meta { color: var(--muted); font-size: 0.9em; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .tldr b { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .scroll { overflow-x: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .small { font-size: 0.85em; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>사전 보고서 — ma 그리드 확장: entry_slope_max 축</h1>
+<p class="meta">2026-07-15 오후 · 회사 PC · 작성: Claude (그리드 실행 전 계획서) · 짝 문서: 완료 후 <code>20260715_ma_grid_slope_result.html</code></p>
+
+<div class="tldr">
+<b>TL;DR</b> — 2026-07-14 심야 스크리닝에서 <b>MA 기울기 필터(<code>entry_slope_max</code>)</b>가
+간이 리플레이 기준 +2.96 → <b>+43.40으로 세 소스 전부 개선</b>되는 최유망 신규 변수로 나왔다.
+전략 구현은 완료 상태(기본 null = 현행 불변)이므로, 이번 작업은 D23 채택 절차의 필수 단계인
+<b>실엔진 그리드 검증</b>이다: 기존 6축에 slope 축 + 예약분(cap 0.6~0.7, ma_len 600)을 더한
+24,192조합 풀 그리드. config 반영은 D23 3중 기준(train 상위 · val≥0 · 이웃 plateau) 충족 시에만.
+</div>
+
+<h2>1. 배경</h2>
+<ul>
+  <li>P1 판정(2026-07-07): MA는 라이브 부적합 (mar03 대패). 단 7월 sim 레짐에서는 MA가 threshold보다 우세 (07-14 실매매 리뷰: MA +19.06 vs threshold −5.10) — 레짐 뒤집힘.</li>
+  <li>07-14 심야 스크리닝: 크로스업 진입 669건 중 <b>상승 MA 추격 진입(slope&gt;0, 120건)이 −34.8로 주된 독소</b>. "하락 중인 MA를 뚫는 반등"(slope ≤ −0.005)만 진입 시 janfeb +23.8→+51.0 / mar03 −21.8→−12.3 / sim +1.0→+4.7.</li>
+  <li>단 스크리닝은 간이 리플레이(양 사이드 독립 포지션 등 실전략과 다름) — <b>채택 전 실엔진 스윕이 D23 필수 절차</b>.</li>
+  <li>07-14 회사 그리드의 잔여 과제: 어제 후보 cap0.7/ma600이 그리드 축 밖이었음 → 이번에 축 포함.</li>
+</ul>
+
+<h2>2. 실행 설계</h2>
+<table>
+<tr><th>항목</th><th>내용</th></tr>
+<tr><td>축 (7축)</td><td>cap {0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3} · ma_len {120, 200, 240, 300, 480, 600} · tick_confirm {0,2,3} · tp_abs {none, 0.95, 0.98, 0.99} · cooldown {0,30,60,90} · ban {none,80,100} · <b>entry_slope_max {none, 0, −0.005, −0.01}</b> (신규)</td></tr>
+<tr><td>규모</td><td>24,192조합 (기존 3,600 × slope 4 × cap/ma_len 확장) — 16코어/10워커 예상 ~45분</td></tr>
+<tr><td>데이터</td><td>parquet 2026-07-15 15:5x 재생성 — 완전 205 slugs (janfeb 161 / mar03 16 / sim 28), D22 complete-only</td></tr>
+<tr><td>비용 모델</td><td>haircut 0.01 / p_fail 0.2 / seed 42 (P1 캘리브레이션 불변)</td></tr>
+<tr><td>집계 수정</td><td>run_grid의 val을 <b>mar03+sim 합(oos)</b>으로 정정하고 <code>mar03_pnl</code>/<code>sim_pnl</code> 분리 컬럼 추가 — 기존엔 val=mar03만이라 sim이 total에 숨어 있었음 (07-14 판정 때 수동 계산했던 것의 정식화, sweep_threshold와 컨벤션 일치)</td></tr>
+</table>
+
+<h2>3. 판정 기준 (D23 — 사전 고정)</h2>
+<ol>
+  <li>train(janfeb) 점수 상위</li>
+  <li>val(mar03+sim) ≥ 0</li>
+  <li>이웃 plateau — 특히 <b>ma_len 600 절벽 여부</b>(07-14 그리드에서 240 절벽 −14.9 전례)와 slope 축 단조성</li>
+</ol>
+<div class="card">
+셋 다 충족하는 조합이 있어도 <b>MA sim 재가동은 별개 결정</b>(recorder 분리 P3와 연계) —
+이번 산출물은 "차기 재판정(완전 sim 60)의 비교 대상 등록"까지. config 즉시 교체는 하지 않는 것이 기본값
+(07-14 결론: 34 slugs 표본으로 교체 보류 — 현재도 sim 완전 28로 동일 상황).
+</div>
+
+<h2>4. 가설 (사전 등록)</h2>
+<ul>
+  <li>H1: slope ≤ 0 계열이 none 대비 train·val 동시 개선 (스크리닝 재현). 실전략(단일 포지션·재진입 규칙 포함)에서 크기는 줄어들 수 있음.</li>
+  <li>H2: cap 0.6~0.7 / ma_len 600 영역(07-13 심야 전 구간 생존형 후보)은 slope 필터와 중복 효과라 결합 시 한쪽이 무의미해질 수 있음.</li>
+  <li>H3: 07-14 후보 영역(cap0.45/ma200/tp0.99)은 slope 축 추가 후에도 생존하면 신뢰도 상승.</li>
+</ul>
+
+<p class="small">산출물: <code>backtest/results/&lt;ts&gt;_grid_ma.{csv,json}</code> · 결과 보고서(민감도 차트 포함) · WORKLOG 갱신. 수집 봇(threshold sim)은 그리드와 병행 유지.</p>
+
+</body>
+</html>
