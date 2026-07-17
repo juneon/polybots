@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>결과 보고서 — ma 그리드 확장: entry_slope_max 축 (2026-07-18)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #e2e6ea;
+    --accent: #0b6bcb; --warn: #b4540a; --ok: #1a7f37; --bad: #c0392b;
+    --card: #f6f8fa; --code: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #9aa4ae; --line: #2b3238;
+      --accent: #5aa2e8; --warn: #e0a05a; --ok: #62c481; --bad: #e0705a;
+      --card: #1c2126; --code: #232930;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 980px; padding: 32px 20px 80px;
+         font: 15px/1.7 "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.6em; border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+  h2 { font-size: 1.25em; margin-top: 2.2em; border-left: 4px solid var(--accent); padding-left: 10px; }
+  .meta { color: var(--muted); font-size: 0.9em; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .tldr b { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .scroll { overflow-x: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .small { font-size: 0.85em; color: var(--muted); }
+  .chart { margin: 14px 0; }
+  .chart svg { max-width: 100%; height: auto; }
+  .bar-label { font: 12px "Segoe UI", sans-serif; fill: var(--fg); }
+  .bar-muted { font: 11px "Segoe UI", sans-serif; fill: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>결과 보고서 — ma 그리드 확장: entry_slope_max 축</h1>
+<p class="meta">2026-07-18 새벽 · 집 PC · 작성: Claude · 짝 문서: <code>20260715_ma_grid_slope_plan.html</code> (가설 H1~H3 사전 등록)</p>
+
+<div class="tldr">
+<b>TL;DR — config 변경 없음 (D23 ③ 미달), 단 slope 축은 실엔진에서 검증됨.</b>
+H1 확정: <code>entry_slope_max ≤ 0</code>은 6,048 매치드 페어 전부에서 train·val 평균 동시 개선,
+train 상위 100개 중 slope 미적용(none)은 <b>0개</b>. train·val 동시 양수 조합이 533개(2.2%)로
+07-14 그리드(34/3,600 = 0.9%) 대비 배 이상 늘었다. 그러나 최상위 후보들도
+<b>ma_len 240 절벽(score −35)과 cooldown 30 붕괴(−14)</b>가 남아 ③ plateau는 부분 충족,
+게다가 <b>mar03은 상위 전 영역에서 음수</b>(val 양수는 전적으로 sim 기여) — P1의 "MA 라이브 부적합"
+판정을 뒤집을 근거가 아직 없다. 후보 영역 <b>cap 0.5–0.6 / ma300 / tc0 / cd0 / slope −0.005</b>를
+차기 재판정(완전 sim 60)의 1순위 비교 대상으로 등록. H2 확인(cap0.7/ma600은 slope와 중복 효과 + train 미달),
+H3 기각(07-14 후보 영역은 sim 표본 확대로 소멸).
+</div>
+
+<h2>1. 실행 요약</h2>
+<table>
+<tr><th>항목</th><th>내용</th></tr>
+<tr><td>조합</td><td>24,192 (7축 — plan §2와 동일, seed 42 / haircut 0.01 / p_fail 0.2)</td></tr>
+<tr><td>데이터</td><td>parquet 2026-07-17 18:52 — <b>완전 214 slugs</b> (janfeb 161 / mar03 16 / sim 37), D22 complete-only (부분 52 제외)</td></tr>
+<tr><td>실행 경위</td><td>07-17 18:56 집 시작 → 07-18 01:01 PC 강제종료로 80.1%(19,374) 중단 → <b>a795b9d 증분 체크포인트로 01:14 재개, 잔여 4,818콤보 29분 완주</b>. 07-15 "56% 유실" 재발 방지 실증</td></tr>
+<tr><td>산출물</td><td><code>backtest/results/20260717_185646_grid_ma.{csv,json}</code></td></tr>
+</table>
+
+<h2>2. 전체 지형</h2>
+<ul>
+  <li>train 양수 1,425 / 24,192 (5.9%) · val(=mar03+sim) 양수 8,342 (34.5%) · <b>동시 양수 533 (2.2%)</b> — 07-14 그리드는 34/3,600 (0.9%)</li>
+  <li>동시 양수 533개 중 <b>445개(83%)가 slope ≤ 0</b> (−0.01: 233 / −0.005: 109 / 0: 103 / none: 88)</li>
+  <li>구 config(cap0.5/ma300/tc0/tp0.98, slope 없음): train_score 7.78 (<b>397위</b>) / val <span class="bad">−17.61</span> / 이웃 동시 양수 0/10 — slope 하나만 더한 동일 조합이 37.25 / <span class="ok">+6.48</span>로 도약 (아래 B)</li>
+</ul>
+
+<h2>3. 가설 판정 (사전 등록 H1~H3)</h2>
+
+<h3>H1 — slope 필터 유효성: <span class="ok">확정</span></h3>
+<p>다른 6축을 고정한 매치드 페어(각 6,048쌍)에서 slope 적용 시 변화:</p>
+<table>
+<tr><th>slope 레벨</th><th class="num">Δtrain_score 평균</th><th class="num">Δval 평균</th><th class="num">Δtrain 중앙값</th><th class="num">Δval 중앙값</th><th class="num">둘 다 개선</th></tr>
+<tr><td>0</td><td class="num">+8.43</td><td class="num">+4.79</td><td class="num">+3.54</td><td class="num">+3.00</td><td class="num">48.6%</td></tr>
+<tr><td>−0.005</td><td class="num">+9.12</td><td class="num">+5.18</td><td class="num">+4.04</td><td class="num">+3.09</td><td class="num">49.5%</td></tr>
+<tr><td><b>−0.01</b></td><td class="num"><b>+14.39</b></td><td class="num"><b>+5.43</b></td><td class="num"><b>+6.87</b></td><td class="num"><b>+3.18</b></td><td class="num"><b>56.1%</b></td></tr>
+</table>
+<p class="small">스크리닝(간이 리플레이 +2.96→+43.40)보다 크기는 작지만 방향·단조성이 실전략 엔진에서 재현.
+"상승 MA 추격 진입이 독소"라는 07-14 심야 분석과 일치.</p>
+
+<h3>H2 — cap0.6~0.7/ma600 영역과 slope의 중복: <span class="ok">확인 (중복 맞음)</span></h3>
+<ul>
+  <li>cap 0.6–0.7 × ma600 영역(288조합)에서는 slope 추가가 무효과: 평균 val +9.03(none) → +6.54(−0.005)로 오히려 소폭 악화 — <b>ma600의 느린 추세 확인이 slope 필터와 같은 역할</b></li>
+  <li>이 영역 최선(cap0.7/ma600/tc0/tp없음/cd30/ban80)은 val <span class="ok">+24.19</span>로 전체 val 1위권이나 train <span class="bad">−17.98</span> — D23 ① 미달. 07-13 "전 구간 생존형" 후보는 train 검증을 통과하지 못함</li>
+</ul>
+
+<h3>H3 — 07-14 후보 영역(cap0.45/ma200/tc0/tp0.99) 생존: <span class="bad">기각</span></h3>
+<p>영역 내 train·val 동시 양수 <b>0개</b>. train 양수 멤버(최고 1.84)는 전부 val 음수(−3.05),
+val 양수 멤버(+0.93)는 train −60.7. 07-14의 "oos +3.1"은 당시 sim 26 slugs 기준 — 표본이 37로 늘자 소멸.
+<b>소표본 후보 영역이 얼마나 쉽게 사라지는지의 실례</b> — 차기 재판정에서 sim 60을 요구하는 이유.</p>
+
+<h2>4. D23 후보와 이웃 민감도</h2>
+<table class="scroll">
+<tr><th></th><th>조합 (cap/ma/tc/tp/cd/ban/slope)</th><th class="num">trades</th><th class="num">train_score</th><th class="num">mar03</th><th class="num">sim</th><th class="num">val</th><th class="num">이웃 동시양수</th></tr>
+<tr><td><b>A</b></td><td>0.5 / 300 / 0 / 없음 / 0 / 없음 / −0.005</td><td class="num">824</td><td class="num"><b>44.71</b> (전체 4위)</td><td class="num bad">−9.88</td><td class="num ok">+15.63</td><td class="num ok">+5.75</td><td class="num">3/10</td></tr>
+<tr><td><b>B</b></td><td>0.5 / 300 / 0 / 0.98 / 0 / 없음 / −0.005 <span class="small">(= 현 config + slope)</span></td><td class="num">826</td><td class="num">37.25</td><td class="num bad">−9.27</td><td class="num ok">+15.75</td><td class="num ok">+6.48</td><td class="num">3/11</td></tr>
+<tr><td>C</td><td>0.6 / 300 / 2 / 0.98 / 0 / 없음 / −0.005</td><td class="num">946</td><td class="num">32.63</td><td class="num bad">−10.57</td><td class="num ok">+16.75</td><td class="num ok">+6.18</td><td class="num">6/12</td></tr>
+<tr><td>D</td><td>0.6 / 300 / 2 / 없음 / 0 / 없음 / −0.005</td><td class="num">944</td><td class="num">24.54</td><td class="num bad">−13.12</td><td class="num ok">+18.22</td><td class="num ok">+5.10</td><td class="num"><b>7/11</b></td></tr>
+<tr><td colspan="8" class="small">참고 — 구 config(slope 없음): score 7.78 / mar03 −23.97 / sim +6.36 / val −17.61 / 이웃 0/10 · 구 무마찰 최적점: score 1.89 / val −16.68</td></tr>
+</table>
+
+<p><b>B(현 config + slope −0.005)의 이웃 축별 변화</b> — plateau인 축과 절벽인 축:</p>
+<table>
+<tr><th>축 이동</th><th class="num">train_score</th><th class="num">val</th><th>판정</th></tr>
+<tr><td>tp 0.98 → 0.95 / 0.99</td><td class="num">31.68 / 30.73</td><td class="num">+6.99 / +5.27</td><td class="ok">plateau (양쪽 다 동시 양수)</td></tr>
+<tr><td>ban 없음 → 80</td><td class="num">24.61</td><td class="num">+6.47</td><td class="ok">plateau</td></tr>
+<tr><td>slope −0.005 → 0 / −0.01</td><td class="num">40.61 / 29.67</td><td class="num">−0.39 / −2.72</td><td class="warn">train 유지, val 부호 반전 (경계)</td></tr>
+<tr><td>cap 0.5 → 0.6 / 0.45</td><td class="num">45.74 / 7.72</td><td class="num">−4.91 / −9.17</td><td class="warn">train 유지, val 부호 반전</td></tr>
+<tr><td>cooldown 0 → 30</td><td class="num bad">−14.10</td><td class="num">+0.40</td><td class="bad">train 붕괴</td></tr>
+<tr><td>ma_len 300 → 240 / 480</td><td class="num bad">−35.08 / −15.98</td><td class="num bad">−27.15 / −2.23</td><td class="bad"><b>절벽</b> (07-14 ma240 절벽 −14.9의 재확인, 더 깊어짐)</td></tr>
+</table>
+
+<div class="chart">
+<svg viewBox="0 0 640 190" role="img" aria-label="ma_len 축 한계 민감도">
+  <text x="8" y="16" class="bar-label" font-weight="600">ma_len 축 — 전 조합 평균 train_score (막대) / 동시 양수 조합 수 (괄호)</text>
+  <g transform="translate(70,34)">
+    <line x1="180" y1="0" x2="180" y2="140" stroke="var(--line)"/>
+    <!-- scale: 3px per score unit, zero at x=180 -->
+    <g transform="translate(0,4)"><rect x="2.6" y="0" width="177.4" height="16" fill="var(--bad)" opacity="0.75"/><text x="-62" y="12" class="bar-label">120</text><text x="186" y="12" class="bar-muted">−59.1 (0)</text></g>
+    <g transform="translate(0,26)"><rect x="100.4" y="0" width="79.6" height="16" fill="var(--bad)" opacity="0.6"/><text x="-62" y="12" class="bar-label">200</text><text x="186" y="12" class="bar-muted">−26.5 (0)</text></g>
+    <g transform="translate(0,48)"><rect x="100.4" y="0" width="79.6" height="16" fill="var(--bad)" opacity="0.6"/><text x="-62" y="12" class="bar-label">240</text><text x="186" y="12" class="bar-muted">−26.5 (249)</text></g>
+    <g transform="translate(0,70)"><rect x="148.6" y="0" width="31.4" height="16" fill="var(--accent)"/><text x="-62" y="12" class="bar-label" font-weight="600">300</text><text x="186" y="12" class="bar-muted" font-weight="600">−10.5 (227) ← 능선</text></g>
+    <g transform="translate(0,92)"><rect x="96.6" y="0" width="83.4" height="16" fill="var(--bad)" opacity="0.6"/><text x="-62" y="12" class="bar-label">480</text><text x="186" y="12" class="bar-muted">−27.8 (5)</text></g>
+    <g transform="translate(0,114)"><rect x="132" y="0" width="48" height="16" fill="var(--warn)" opacity="0.7"/><text x="-62" y="12" class="bar-label">600</text><text x="186" y="12" class="bar-muted">−16.0 (52)</text></g>
+  </g>
+</svg>
+<p class="small">ma300은 이웃 대비 고립된 능선(ridge)이지 평원(plateau)이 아니다 — ③을 완전 충족으로 볼 수 없는 핵심 근거.
+(240의 동시 양수 249개는 대부분 cap0.7 쪽 별개 군집으로, 300 능선의 연속이 아님)</p>
+</div>
+
+<h2>5. 비용 민감도 (haircut, 상위 후보)</h2>
+<table>
+<tr><th>조합</th><th class="num">hc 0</th><th class="num">0.005</th><th class="num">0.01 (기준)</th><th class="num">0.02</th><th class="num">0.03</th></tr>
+<tr><td>A — 0.5/300/0/없음/slope−0.005</td><td class="num">94.67</td><td class="num">75.77</td><td class="num">56.91</td><td class="num ok">+19.62</td><td class="num bad">−17.38</td></tr>
+<tr><td>train 1위 — 0.7/300/0/없음/slope−0.005</td><td class="num">103.24</td><td class="num">80.14</td><td class="num">57.08</td><td class="num">+11.39</td><td class="num bad">−34.11</td></tr>
+<tr><td>B — 0.5/300/0/0.98/slope−0.005</td><td class="num">91.60</td><td class="num">71.25</td><td class="num">50.94</td><td class="num">+10.75</td><td class="num bad">−29.15</td></tr>
+</table>
+<p class="small">전 조합이 haircut 0.03에서 음전 — 엣지가 매도 비용 가정에 강하게 의존.
+P1 캘리브레이션(0.01)이 실측 기반이긴 하나, live 검증 전엔 0.02 여유를 남기는 A형(tp 없음)이 상대적으로 견고.</p>
+
+<h2>6. D23 판정</h2>
+<table>
+<tr><th>기준</th><th>판정</th><th>근거</th></tr>
+<tr><td>① train 점수 상위</td><td class="ok">충족</td><td>A가 전체 4위(44.71), 동시 양수 후보군이 train 상위권 형성</td></tr>
+<tr><td>② val(mar03+sim) ≥ 0</td><td class="warn">형식 충족</td><td>A +5.75 / B +6.48. 단 <b>mar03은 상위 전 영역 음수</b> — val 양수는 전적으로 sim(37 slugs) 기여</td></tr>
+<tr><td>③ 이웃 plateau</td><td class="bad">미달</td><td>tp·ban 축은 평탄하나 <b>ma_len 240/480 절벽 + cooldown 30 train 붕괴</b>, cap·slope 이웃 val 부호 반전. ma300은 능선이지 평원이 아님</td></tr>
+</table>
+
+<div class="card">
+<b>결론: configs/ma.json 변경 없음</b> (D23 규칙 — 미달이면 현행 유지 + 사유 기록. plan §3의 사전 기본값과도 일치).<br>
+등록: <b>후보 영역 cap 0.5–0.6 / ma300 / tc0–2 / cd0 / slope −0.005~−0.01</b> (대표 A·B)을
+<b>차기 재판정(완전 sim 60, 현재 37)의 1순위 비교 대상</b>으로. 재판정 시 B(현 config + slope 한 칸)부터 대조.<br>
+MA sim 재가동 여부는 여전히 별개 결정(P3 recorder 분리와 연계) — mar03 전 영역 음수인 한 live 후보는 아님.
+</div>
+
+<p class="small">작성: 2026-07-18 02시경, 그리드 완주 직후. 판정 스크립트·집계는 세션 스크래치(analyze_grid.py),
+원 데이터는 <code>backtest/results/20260717_185646_grid_ma.csv</code> (24,192행) · 요약 <code>...json</code>.</p>
+
+</body>
+</html>
