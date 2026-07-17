@@ -5,13 +5,26 @@
   Every row carries a run_id so runs can be separated in analysis.
 - intent/trade rows flush immediately (loss prevention);
   events/snapshots flush at slug boundaries only (performance).
+- events rotate per UTC day: events_<YYYYMMDD>.csv (2026-07-18 — the single
+  events.csv grew unbounded, 43MB in a week). The legacy events.csv is frozen
+  history; readers (data_prep, ui.metrics, ui.jobs) consume legacy + dated
+  files together. trades/snapshots stay single files (fills only, small).
 """
 import csv
 import json
 import logging
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+
+def events_filename(utc_day: str) -> str:
+    return f"events_{utc_day}.csv"
+
+
+def _utc_day() -> str:
+    return time.strftime("%Y%m%d", time.gmtime())
 
 # CSV schemas — the single source for column names. Consumers (ui/metrics,
 # backtest, tests) import these instead of re-typing header strings.
@@ -42,6 +55,7 @@ class Logger:
 
         d = Path(logs_dir)
         d.mkdir(parents=True, exist_ok=True)
+        self._dir = d
 
         self._pending_intent = None
         self._trade_id = 0
@@ -49,9 +63,10 @@ class Logger:
         self._fe = self._we = None
         self._ft = self._wt = None
         self._fs = self._ws = None
+        self._events_day = ""
 
         if self.on_events:
-            self._fe, self._we = self._open(d / "events.csv", EVENTS_FIELDS)
+            self._open_events(_utc_day())
 
         if self.on_trades:
             self._ft, self._wt = self._open(d / "trades.csv", TRADES_FIELDS)
@@ -69,10 +84,24 @@ class Logger:
             w.writeheader()
         return f, w
 
+    def _open_events(self, day: str) -> None:
+        """(Re)open the dated events file, closing the previous day's file."""
+        if self._fe:
+            try:
+                self._fe.flush()
+                self._fe.close()
+            except Exception as e:
+                log.warning("events file close on rollover failed: %r", e)
+        self._events_day = day
+        self._fe, self._we = self._open(self._dir / events_filename(day), EVENTS_FIELDS)
+
     def handle(self, ev: dict) -> None:
         et = ev.get("type")
 
         if self.on_events and et in ("slug_init", "slug_change", "quote", "warn", "exit"):
+            day = _utc_day()
+            if day != self._events_day:  # midnight UTC rollover
+                self._open_events(day)
             self._we.writerow({
                 "run_id": self.run_id,
                 "type": et,

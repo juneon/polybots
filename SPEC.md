@@ -180,7 +180,7 @@ runner가 sim 모드에서만 처리 (live는 `reconcile_on_slug`가 담당):
 | `core/executor_live.py` | 실주문. BUY=GTC 1샷, SELL=IOC 스윕(잔고 폴링, 최대 sell_sweep_window_sec). **스윕은 워커 스레드** (2026-07-18): fill()은 `submitted`를 즉시 반환하고 최종 집계 trade는 `drain_completed()`로 — runner가 매 quote tick 시작에 드레인해 정상 싱크 경로(account→strategy→logger)로 라우팅. 같은 토큰 스윕 진행 중 새 SELL은 `sell_inflight` 거부, 종료 시 `shutdown()`이 join 후 잔여 드레인 | intent, quote_ev, account | trade |
 | `core/account_sim.py` | 모의 계좌. sim_account.json 영속화 | trade(filled) | 상태 |
 | `core/account_live.py` | 실계좌 상태. dust 임계, 래깅 가드, slug 경계 reconcile | trade(filled), CLOB 잔고 | 상태 |
-| `core/logger.py` | CSV 기록. **append 모드 + run_id** | event/intent/trade, account | logs/*.csv |
+| `core/logger.py` | CSV 기록. **append 모드 + run_id**. events는 **UTC 일자별 로테이션** `events_<YYYYMMDD>.csv` (2026-07-18 — 구 `events.csv`는 동결 히스토리, 리더는 legacy+일자 파일을 합쳐 읽음. trades/snapshots는 소용량이라 단일 유지) | event/intent/trade, account | logs/*.csv |
 | `core/printer.py` | 사람이 읽는 tick 출력 (MA 등 전략 debug 포함) | quote_ev, account, strategy | stdout |
 | `core/runner.py` | 조립 + 라우팅 + CLI(`--run-id` 포함). KeyboardInterrupt 시 로그 정상 close | argv, config | — |
 | `core/control.py` | stop-file 감지 + heartbeat 원자적 기록 (UI 연동, CLI 단독 실행에도 무해) | run_id | `logs/ctl/<run_id>.status.json` |

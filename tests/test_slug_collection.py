@@ -71,6 +71,18 @@ def test_incremental_ingest_updates_judgement(tmp_path):
     assert col.progress() == {"complete": 1, "total": 1, "by_strategy": {}}
 
 
+def test_daily_rotation_files_merge_with_legacy(tmp_path):
+    # legacy frozen file + two daily files; one slug spans the midnight rollover
+    write_events(tmp_path / "events.csv", [init_row("old"), *cover("old")])
+    write_events(tmp_path / "events_20260718.csv", cover("span", start=899, end=450))
+    col = SlugCollection(path=tmp_path / "events.csv")
+    assert col.progress() == {"complete": 1, "total": 2, "by_strategy": {"threshold": 1}}
+
+    # next day's file appears between polls and completes the spanning slug
+    write_events(tmp_path / "events_20260719.csv", cover("span", start=470, end=3))
+    assert col.progress() == {"complete": 2, "total": 2, "by_strategy": {"threshold": 1}}
+
+
 def test_completeness_rule_matches_data_prep():
     dp = pytest.importorskip("backtest.data_prep")
     assert (metrics.COMPLETE_FIRST_TLEFT, metrics.COMPLETE_LAST_TLEFT, metrics.COMPLETE_MAX_GAP_SEC) == \

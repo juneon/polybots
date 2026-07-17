@@ -1,11 +1,15 @@
 # tests/test_logger.py
 """Logger: append mode across runs (single header, run_id separates runs),
-intent+trade paired into one trades.csv row."""
+intent+trade paired into one trades.csv row, events rotated per UTC day."""
 import csv
+import time
 
-from core.logger import Logger
+import core.logger
+from core.logger import Logger, events_filename
 
 CFG = {"logging": {"events": True, "trades": True, "snapshots": False}}
+
+TODAY = time.strftime("%Y%m%d", time.gmtime())
 
 
 def emit_pair(lg, slug, price, status="filled"):
@@ -42,14 +46,26 @@ def test_append_across_runs_single_header(tmp_path):
     assert rows[1]["slug"] == "s2"
 
 
-def test_events_rows_carry_run_id(tmp_path):
+def test_events_rows_carry_run_id_in_dated_file(tmp_path):
     lg = Logger(CFG, run_id="runX", logs_dir=str(tmp_path))
     lg.handle({"type": "slug_init", "slug": "s1", "tick": 0, "ts": 1})
     lg.handle({"type": "quote", "slug": "s1", "tick": 1, "ts": 2, "quote": {}})
     lg.close()
 
-    rows = read_rows(tmp_path / "events.csv")
+    rows = read_rows(tmp_path / events_filename(TODAY))   # events_<utc day>.csv
     assert [(r["run_id"], r["type"]) for r in rows] == [("runX", "slug_init"), ("runX", "quote")]
+
+
+def test_events_rotate_at_utc_midnight(tmp_path, monkeypatch):
+    lg = Logger(CFG, run_id="r", logs_dir=str(tmp_path))
+    lg.handle({"type": "quote", "slug": "s1", "tick": 1, "ts": 1, "quote": {}})
+
+    monkeypatch.setattr(core.logger, "_utc_day", lambda: "20990101")
+    lg.handle({"type": "quote", "slug": "s1", "tick": 2, "ts": 2, "quote": {}})
+    lg.close()
+
+    assert [r["tick"] for r in read_rows(tmp_path / events_filename(TODAY))] == ["1"]
+    assert [r["tick"] for r in read_rows(tmp_path / events_filename("20990101"))] == ["2"]
 
 
 def test_disabled_sinks_write_nothing(tmp_path):
@@ -58,4 +74,4 @@ def test_disabled_sinks_write_nothing(tmp_path):
     emit_pair(lg, "s1", 0.8)
     lg.close()
     assert not (tmp_path / "trades.csv").exists()
-    assert not (tmp_path / "events.csv").exists()
+    assert list(tmp_path.glob("events*.csv")) == []

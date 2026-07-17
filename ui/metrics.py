@@ -87,17 +87,26 @@ class SlugCollection:
     quote stream, not the run. Completeness mirrors data_prep.flag_complete
     exactly: unique time_left values per slug, first >= 870, last <= 15, no
     sorted-gap > 60s. Only slugs touched since the last poll are re-judged.
+
+    Reads the legacy events.csv (frozen history) plus the daily rotation files
+    events_<YYYYMMDD>.csv next to it (core.logger, 2026-07-18), each with its
+    own byte-offset incremental cursor. A slug spanning midnight is merged
+    naturally — coverage is keyed by slug, not by file.
     """
 
     def __init__(self, path: Path = EVENTS_CSV):
         self.path = path
         self._lock = threading.Lock()
-        self._offset = 0
-        self._tail = ""  # carry-over of an incomplete trailing line
+        self._cursors: Dict[str, list] = {}    # file -> [offset, tail carry-over]
         self._slugs: Dict[str, Set[str]] = {}  # per-strategy observed slugs
         self._cov: Dict[str, Set[int]] = {}    # slug -> unique time_left values seen
         self._complete: Dict[str, bool] = {}
         self._dirty: Set[str] = set()
+
+    def _files(self) -> List[Path]:
+        out = [self.path] if self.path.exists() else []
+        out += sorted(self.path.parent.glob("events_*.csv"))
+        return out
 
     def progress(self) -> Dict[str, Any]:
         with self._lock:
@@ -120,24 +129,30 @@ class SlugCollection:
                 and gap <= COMPLETE_MAX_GAP_SEC)
 
     def _ingest(self) -> None:
+        for fp in self._files():
+            self._ingest_file(fp)
+
+    def _ingest_file(self, path: Path) -> None:
         try:
-            size = self.path.stat().st_size
+            size = path.stat().st_size
         except OSError:
             return
-        if size < self._offset:  # rotated/truncated -> full rescan
-            self._offset, self._tail = 0, ""
+        cur = self._cursors.setdefault(str(path), [0, ""])
+        if size < cur[0]:  # truncated -> coverage sets can't be unwound: full rescan
+            self._cursors = {str(path): [0, ""]}
             self._slugs, self._cov, self._complete, self._dirty = {}, {}, {}, set()
-        if size == self._offset:
+            cur = self._cursors[str(path)]
+        if size == cur[0]:
             return
 
-        with self.path.open("r", encoding="utf-8", errors="replace", newline="") as f:
-            f.seek(self._offset)
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+            f.seek(cur[0])
             chunk = f.read()
-            self._offset = f.tell()
+            cur[0] = f.tell()
 
-        text = self._tail + chunk
+        text = cur[1] + chunk
         lines = text.split("\n")
-        self._tail = lines.pop()  # incomplete (or empty) last piece
+        cur[1] = lines.pop()  # incomplete (or empty) last piece
 
         for line in lines:
             line = line.rstrip("\r")

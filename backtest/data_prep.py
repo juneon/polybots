@@ -6,8 +6,14 @@ Sources (old format: type,slug,tick,ts,data / new format adds run_id):
   - backtest/data/mar03_live.csv (2026-03-03 live session, promoted from archive/
                                   so a fresh clone gets the val set — name must NOT
                                   match the *_events.csv glob above)
-  - logs/events.csv              (new monorepo sim runs — split per UTC day so the
-                                  engine reports per-day PnL: sim_260712, sim_260713, ...)
+  - logs/events.csv              (monorepo sim runs up to 2026-07-18 — frozen)
+  - logs/events_<YYYYMMDD>.csv   (daily rotation since 2026-07-18, core.logger)
+    sim rows are split per UTC day of the slug start so the engine reports
+    per-day PnL: sim_260712, sim_260713, ... (independent of the file's date)
+
+Per-file parse cache (2026-07-18): parsed quotes are cached under
+backtest/data/cache/ keyed by (mtime, size) — rotation makes past event files
+immutable, so only the current day's file is re-parsed on a rebuild.
 
 Output: backtest/data/quotes_all.parquet
   columns: source, slug, tick, ts, time_left_sec, up_bid, up_ask, down_bid, down_ask,
@@ -30,6 +36,7 @@ Run from backtest/:  python data_prep.py
 """
 import glob
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,9 +48,15 @@ SOURCES = [
     ("grid_jan_feb", str(Path(__file__).parent / "data" / "*_events.csv")),
     ("live_mar03", str(Path(__file__).parent / "data" / "mar03_live.csv")),
     ("sim_new", str(ROOT / "logs" / "events.csv")),
+    ("sim_new", str(ROOT / "logs" / "events_*.csv")),   # daily rotation (2026-07-18)
 ]
 
 OUT = Path(__file__).parent / "data" / "quotes_all.parquet"
+
+CACHE_DIR = Path(__file__).parent / "data" / "cache"    # gitignored
+MANIFEST = CACHE_DIR / "manifest.json"
+QUOTE_COLS = ["source", "slug", "tick", "ts", "time_left_sec",
+              "up_bid", "up_ask", "down_bid", "down_ask"]
 
 # slug completeness rule (thresholds are insensitive: 200/243 slugs qualify
 # under (870/15/60), 200-201 under (850/30/60) or (880/10/30) — 2026-07-14)
@@ -108,16 +121,41 @@ def load_events_file(fp: str, source: str) -> list:
     return rows
 
 
+def _load_cached(fp: str, source: str) -> pd.DataFrame:
+    """Parse one events file through the per-file cache (validated by mtime+size)."""
+    st = os.stat(fp)
+    key = f"{source}__{Path(fp).name}"
+    cache_fp = CACHE_DIR / f"{key}.parquet"
+
+    manifest = {}
+    if MANIFEST.exists():
+        try:
+            manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+
+    ent = manifest.get(key)
+    if ent and ent.get("mtime") == st.st_mtime and ent.get("size") == st.st_size and cache_fp.exists():
+        return pd.read_parquet(cache_fp)
+
+    df = pd.DataFrame(load_events_file(fp, source), columns=QUOTE_COLS)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(cache_fp, index=False)
+    manifest[key] = {"mtime": st.st_mtime, "size": st.st_size}
+    MANIFEST.write_text(json.dumps(manifest, indent=1), encoding="utf-8")
+    return df
+
+
 def build() -> pd.DataFrame:
-    all_rows = []
+    frames = []
     for source, pattern in SOURCES:
         files = sorted(glob.glob(pattern))
         for fp in files:
-            rows = load_events_file(fp, source)
-            print(f"  {source}: {Path(fp).name} -> {len(rows)} quotes")
-            all_rows.extend(rows)
+            part = _load_cached(fp, source)
+            print(f"  {source}: {Path(fp).name} -> {len(part)} quotes")
+            frames.append(part)
 
-    df = pd.DataFrame(all_rows)
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=QUOTE_COLS)
     if df.empty:
         raise RuntimeError("no quotes loaded")
 

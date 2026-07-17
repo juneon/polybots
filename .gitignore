@@ -17,6 +17,7 @@ logs/ctl/
 
 # regenerable artifacts (rebuilt by backtest/data_prep.py)
 backtest/data/quotes_all.parquet
+backtest/data/cache/
 
 # local-only
 configs/backups/

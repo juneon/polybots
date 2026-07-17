@@ -59,7 +59,7 @@
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
   - [ ] maker 진입 검토 — `execution.buy: "limit"` 경로로 스프레드 회수 (왕복비용 ~$0.02가 유일한 확정 마이너스: 2026-07-14 캘리브레이션 스터디). adverse selection은 live 소액 실측으로
   - [x] **sim 이월 포지션 정산 처리** ✅ 2026-07-14 저녁 — 마지막 bid 강제 장부 마감(exit_expiry) + 교차 slug exit 차단 + stale write-off (SPEC §4.5). 과거 실측 3건(MA +5.3 과대 / threshold −3.5~−8.8 과소)의 장부는 소급 수정 안 함
-- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · **events.csv 일자 로테이션 + data_prep 증분화** (수개월치 누적 대비 — 2026-07-12 심층 리뷰) · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거) · ~~data_prep의 live_mar03 소스를 backtest/data/로 승격~~ ✅ 2026-07-13 집: `backtest/data/mar03_live.csv`로 승격(git 추적), archive/ 의존 제거
+- **P3 — 인프라**: tick당 HTTP 4회 순차 → 병렬화 or CLOB WebSocket · slug 경계 404 폴백(로컬 시계 레이스) · GTC 잔류 주문 추적/취소(현재 buy_inflight 래치로 중복만 방지) · 서버 상시 가동, 패키징(구조 감사 #8) · ~~events.csv 일자 로테이션 + data_prep 증분화~~ ✅ 2026-07-18: logger가 `events_<YYYYMMDD>.csv`(UTC)로 로테이션 + data_prep 파일별 파싱 캐시(`backtest/data/cache/`, mtime+size 검증) + 리더 3곳(data_prep·SlugCollection·jobs.data_status) 파일 세트 대응 · **quote 수집을 봇에서 분리한 recorder** (봇 2개 동시 실행 시 시세 중복 기록 제거) · ~~data_prep의 live_mar03 소스를 backtest/data/로 승격~~ ✅ 2026-07-13 집: `backtest/data/mar03_live.csv`로 승격(git 추적), archive/ 의존 제거
 - **P4 — 확장**: ETH/SOL/XRP·5분/1시간 마켓 (config slug prefix/interval 교체) — **선행: 봇 정체성을 "전략"→"전략@마켓"으로** (config 파일명·sim 계좌 파일·procman 키·run_id·metrics 집계 5곳이 전략 단위라 같은 전략 2마켓 동시 실행 시 충돌, 2026-07-12 심층 리뷰) · train/val 소스명 하드코딩 정리 · Binance ATR(`core/adapters_binance.py` + 전략 플러그인) · 아카이브 최종 처분(구조 감사 #7)
 - **live 재개 기준 (불변)**: sim slug 30+ 무결 + 현실화 백테스트 기대값 플러스 + P2 완료 → 소액부터. UI로는 Phase E의 3단계 가드 경유
 
@@ -580,3 +580,15 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - 스윕 내부 로직(잔고 폴링·부분체결 합산·dust/timeout 규칙·고정가)은 불변 — 이동만 함
 
 **검증**: 테스트 91개 통과 (기존 6개 비동기 경로로 개정 + 신규 4: fill 논블로킹(<0.5s)·inflight 거부·shutdown 드레인·runner 라우팅). sim 스모크 — 임시 config(ma·로깅 off·수집 봇과 상태 파일 분리)로 4분 가동 후 stop-file 그레이스풀 종료 rc 0, 새 드레인/shutdown 경로 포함 정상. **라이브 실측 확인만 남음** (P2 sell_dust 라이브 검증과 같은 세션에서). SPEC §5 표 갱신
+
+### 2026-07-18 (집, 새벽 이어서 3) — P3: events.csv 일자 로테이션 + data_prep 파일별 캐시
+
+**문제**: events.csv 단일 append 파일이 1주만에 43MB — 스냅샷 커밋마다 전체 blob 재해시, data_prep 전체 재파싱, 수개월 누적 시 병목 확정 (2026-07-12 심층 리뷰 예약분).
+
+**구현**:
+- `core/logger.py`: events를 **UTC 일자별 `events_<YYYYMMDD>.csv`로 로테이션** (자정 롤오버 시 파일 교체). 구 `events.csv`는 동결 히스토리 — 이관/분할 없음, 다음 봇 재시작부터 새 파일에 기록. trades/snapshots는 소용량(체결만)이라 단일 유지
+- `backtest/data_prep.py`: 소스에 `logs/events_*.csv` 추가 + **파일별 파싱 캐시** (`backtest/data/cache/<key>.parquet`, mtime+size 검증, gitignore) — 로테이션으로 과거 파일이 불변이 되므로 재빌드 시 오늘 파일만 재파싱. 실측 4.0s → 2.2s (데이터가 쌓일수록 격차 확대)
+- `ui/metrics.SlugCollection`: legacy+일자 파일을 **파일별 바이트 오프셋 커서**로 증분 병합 (slug 기준 커버리지라 자정 걸친 slug도 자연 병합), truncate 감지 시 전체 리스캔. `ui/jobs.data_status`: 신선도 비교에 일자 파일 포함
+- sim 소스 일자 분리(`sim_260713` 등)는 slug_start 기준이라 파일 로테이션과 무관하게 동일
+
+**검증**: 테스트 91 → **93** (logger 자정 롤오버·SlugCollection 로테이션 병합 신규, 기존 2개 일자 파일명으로 개정). data_prep 2회 실행 결과 동일(완전 221 slugs) + 캐시 히트 확인. 실로그 게이지 44/60·0.43s 정상
