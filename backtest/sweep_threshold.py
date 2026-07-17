@@ -28,13 +28,19 @@ from engine import ROOT, prepare_slugs, replay
 # stop_confirm(stop_confirm_sec) probes the whipsaw guard: hold the breach N
 # seconds before stopping out — interacts with STOP_DROP (2026-07-14: on the
 # wide 0.12 stop it only deepens real-collapse exits; the open question is
-# whether a tight stop + dwell beats a wide instant stop).
+# whether a tight stop + dwell beats a wide instant stop). 2026-07-14 sweep:
+# the viable dwell band is 20~30 (5/10 were noise) — axis trimmed to match.
+# enter_stable(enter_stable_sec) probes spike-entry avoidance: only enter after
+# the ask has held >= enter_price_1 for N seconds (2026-07-14 calibration study:
+# 78% of rule entries were <15s breakout buys with zero/negative edge; 15~180s
+# holds had positive edge with janfeb and sim agreeing on direction).
 ENTER_1 = [0.80, 0.85, 0.90]
 STOP_DROP = [0.06, 0.08, 0.10, 0.12]
 TAKE_PROFIT = [0.98, 0.99]
 ENTRY_CAP = [0.90, 0.95]
 T_ENTER = [450, 300, 180]
-STOP_CONFIRM = [0, 5, 10, 20]
+STOP_CONFIRM = [0, 20, 30]
+ENTER_STABLE = [0, 15, 30, 60]
 
 
 def main():
@@ -59,8 +65,8 @@ def main():
     slugs = prepare_slugs(pd.read_parquet(args.data), include_partial=args.include_partial)
 
     rows = []
-    combos = list(product(ENTER_1, STOP_DROP, TAKE_PROFIT, ENTRY_CAP, T_ENTER, STOP_CONFIRM))
-    for i, (p1, sl, tp, cap, t_enter, confirm) in enumerate(combos, 1):
+    combos = list(product(ENTER_1, STOP_DROP, TAKE_PROFIT, ENTRY_CAP, T_ENTER, STOP_CONFIRM, ENTER_STABLE))
+    for i, (p1, sl, tp, cap, t_enter, confirm, stable) in enumerate(combos, 1):
         cfg = json.loads(json.dumps(base_cfg))
         s = cfg["strategy"]
         s["enter_price_1"] = p1
@@ -70,13 +76,14 @@ def main():
         s["entry_cap"] = cap
         s["enter_time_left_sec"] = t_enter
         s["stop_confirm_sec"] = confirm
+        s["enter_stable_sec"] = stable
 
         r = replay("threshold", cfg, slugs, haircut=args.haircut, p_fail=args.pfail, seed=args.seed)
         sim = round(sum(v for k, v in r["per_source"].items() if k.startswith("sim_")), 2)
         mar03 = r["per_source"].get("live_mar03", 0.0)
         rows.append({
             "enter_1": p1, "stop_drop": sl, "take_profit": tp, "entry_cap": cap, "t_enter": t_enter,
-            "stop_confirm": confirm,
+            "stop_confirm": confirm, "stable": stable,
             "pnl": round(r["total_pnl"], 2), "mdd": round(r["mdd"], 2),
             "score": round(r["score"], 2),
             "janfeb": r["per_source"].get("grid_jan_feb", 0.0),
@@ -96,12 +103,14 @@ def main():
 
     bs = base_cfg["strategy"]
     bs_confirm = bs.get("stop_confirm_sec", 0)
+    bs_stable = bs.get("enter_stable_sec", 0)
     print(f"\n===== current config ({bs['enter_price_1']:.2f} / {bs['stop_drop']:.2f}"
           f" / {bs['take_profit']:.2f} / {bs['entry_cap']:.2f} / t{bs['enter_time_left_sec']}"
-          f" / confirm{bs_confirm}) =====")
+          f" / confirm{bs_confirm} / stable{bs_stable}) =====")
     cur = df[(df["enter_1"] == bs["enter_price_1"]) & (df["stop_drop"] == bs["stop_drop"])
              & (df["take_profit"] == bs["take_profit"]) & (df["entry_cap"] == bs["entry_cap"])
-             & (df["t_enter"] == bs["enter_time_left_sec"]) & (df["stop_confirm"] == bs_confirm)]
+             & (df["t_enter"] == bs["enter_time_left_sec"]) & (df["stop_confirm"] == bs_confirm)
+             & (df["stable"] == bs_stable)]
     rank = None
     if len(cur):
         print(cur.to_string(index=False))
