@@ -55,7 +55,7 @@
 - **P2 — 실행 품질** (live 손실 요인 제거, live 재개 전 필수 — core 작업):
   - [ ] `sell_dust:below_step` 대응 — 리팩토링 반영분(청산 실패 시 다음 tick 재발행) 라이브 검증
   - [x] exit_tp도 스윕 경로로 ✅ 2026-07-15 확인: 리팩토링에서 이미 **모든 SELL이 IOC 스윕 경로** (executor_live.fill → _sell_sweep_ioc). exit_tp는 트리거 시점 bid를 limit가로 IOC 스윕 + 레벨트리거 재발화라 3/3의 "FAK 한 방 no-match" 구조 해소됨. `tests/test_executor_live.py`(6개)로 라우팅·가격 규칙 고정. 라이브 실측 확인만 1번 항목과 함께 남음
-  - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리 — 최악 사례: exit_tp no-match 시 스윕이 고정가로 창 전체(10s)를 소진하며 블로킹 (2026-07-15 분석)
+  - [x] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리 ✅ 2026-07-18 워커 스레드 + runner 드레인 (fill은 submitted 즉시 반환, 최종 trade는 drain_completed → 정상 싱크 경로, 중복 SELL은 sell_inflight 거부, 종료 시 shutdown join). 테스트 검증 완료, **라이브 실측 확인만 남음** (스윕 고정가 리프라이싱은 별도 항목 아님 — 기존 동작 유지)
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
   - [ ] maker 진입 검토 — `execution.buy: "limit"` 경로로 스프레드 회수 (왕복비용 ~$0.02가 유일한 확정 마이너스: 2026-07-14 캘리브레이션 스터디). adverse selection은 live 소액 실측으로
   - [x] **sim 이월 포지션 정산 처리** ✅ 2026-07-14 저녁 — 마지막 bid 강제 장부 마감(exit_expiry) + 교차 slug exit 차단 + stale write-off (SPEC §4.5). 과거 실측 3건(MA +5.3 과대 / threshold −3.5~−8.8 과소)의 장부는 소급 수정 안 함
@@ -567,3 +567,16 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 - 스모크(2콤보): stable 30이 fills 342→236으로 실제 작동, t450 창에서는 악화(-7.58 val) — stable은 t180과의 조합이 관건이라는 07-14 가설과 정합, 풀 스윕에서 판정
 - UI 문구 현행화: run_grid "3,600콤보/~10분" → "24,192콤보/~2.5시간+/체크포인트 재개", quick 16→32콤보
 - 테스트 87개 통과. 수집 게이지 완전 43/60 (봇 20260718_011522 가동 중, 이 페이스면 07-18 아침 60 도달)
+
+### 2026-07-18 (집, 새벽 이어서 2) — P2: live SELL 스윕 스레드 분리 (메인 루프 블로킹 해소)
+
+**문제** (2026-07-15 분석): 전 SELL이 IOC 스윕 경로인데 fill()이 동기 실행이라, exit_tp no-match 시 창 전체(10s)를 소진하며 메인 루프 정지 — 그동안 시세·전략·heartbeat 전부 멈춤.
+
+**구현** (`core/executor_live.py` + `core/runner.py`):
+- 스윕을 **데몬 워커 스레드**로: fill()의 SELL은 `status="submitted"`(reason `sell_sweep_started`)를 즉시 반환 — filled만 상태를 바꾸는 불변식 덕에 account/strategy 무영향, 로그엔 제출 기록. allowance 조회도 네트워크라 스레드 안으로
+- 최종 집계 trade는 완료 큐 → runner가 **매 quote tick 시작에 `route_completed_trades()`로 드레인**해 기존 싱크 경로(account.apply → strategy.on_trade → logger → snapshot) 그대로 라우팅 — 이번 tick 결정이 방금 끝난 스윕 결과를 본 뒤 내려짐. 단방향 스트림·SOT 불변식 유지
+- 같은 토큰에 스윕 진행 중 새 SELL intent는 `sell_inflight` 즉시 거부 (전략이 tick마다 exit 재발화해도 중복 스윕 없음)
+- 종료 시 `executor.shutdown()`(창+2s join) 후 잔여 드레인 — finally에서 처리, 체결 유실 없음. sim executor는 drain 미보유로 전부 no-op
+- 스윕 내부 로직(잔고 폴링·부분체결 합산·dust/timeout 규칙·고정가)은 불변 — 이동만 함
+
+**검증**: 테스트 91개 통과 (기존 6개 비동기 경로로 개정 + 신규 4: fill 논블로킹(<0.5s)·inflight 거부·shutdown 드레인·runner 라우팅). sim 스모크 — 임시 config(ma·로깅 off·수집 봇과 상태 파일 분리)로 4분 가동 후 stop-file 그레이스풀 종료 rc 0, 새 드레인/shutdown 경로 포함 정상. **라이브 실측 확인만 남음** (P2 sell_dust 라이브 검증과 같은 세션에서). SPEC §5 표 갱신

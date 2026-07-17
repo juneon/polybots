@@ -111,6 +111,25 @@ def _f(x, default: float = 0.0) -> float:
         return default
 
 
+def route_completed_trades(executor, account, strategy, logger, ev=None) -> bool:
+    """Deliver async executor results (live SELL sweeps) through the normal sink
+    path. No-op for executors without drain_completed (sim). Returns True if a
+    fill was applied."""
+    drain = getattr(executor, "drain_completed", None)
+    if drain is None:
+        return False
+    filled = False
+    for tr in drain():
+        account.apply(tr)        # SOT update (filled only)
+        strategy.on_trade(tr)    # fill feedback
+        logger.handle(tr)
+        if tr.get("status") == "filled":
+            filled = True
+    if filled and ev is not None:
+        logger.snapshot(account, ev)
+    return filled
+
+
 def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
     pm = PolymarketAdapter(cfg)
     account, executor = build_account_executor(mode, cfg, pm, strategy_name)
@@ -166,6 +185,8 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
 
             elif et == "quote":
                 last_quote = ev
+                # async sweep results first, so this tick's decision sees them
+                route_completed_trades(executor, account, strategy, logger, ev)
                 intents = strategy.on_event(ev, account)
                 filled = False
 
@@ -200,6 +221,13 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
         stop_reason = "keyboard_interrupt"
         log.info("interrupted by user — closing logs")
     finally:
+        # live: wait out in-flight SELL sweeps and book their results before closing
+        if hasattr(executor, "shutdown"):
+            try:
+                executor.shutdown()
+                route_completed_trades(executor, account, strategy, logger, last_quote)
+            except Exception as e:
+                log.warning("executor shutdown/drain failed: %r", e)
         # run-end book close (crash without finally = next start's stale-drop path)
         if mode == "sim" and account.has_position() and last_quote is not None:
             pos_slug = (account.position or {}).get("slug") or cur_slug

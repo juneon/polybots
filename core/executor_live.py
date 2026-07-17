@@ -5,12 +5,20 @@
 - SELL: IOC sweep — polls CLOB balance every sell_sweep_poll_sec for up to
   sell_sweep_window_sec, selling whatever balance has settled each pass.
   This works around CLOB balance-reporting lag after a buy.
+
+The sweep runs on a background worker thread: fill() returns a "submitted"
+trade immediately (the main loop keeps ticking through the whole window) and
+the final aggregated trade is delivered via drain_completed(), which the
+runner drains every quote tick. While a sweep is in flight for a token, new
+SELL intents for it are rejected with "sell_inflight".
 """
 from __future__ import annotations
 
 import logging
 import math
 import os
+import queue
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -105,7 +113,13 @@ class LiveExecutor:
         self.sell_sweep_window_sec = float(self.ecfg.get("sell_sweep_window_sec", 10))
         self.sell_sweep_poll_sec = float(self.ecfg.get("sell_sweep_poll_sec", 0.5))
 
+        self._init_sweep_state()
         self._client = build_clob_client(cfg)
+
+    def _init_sweep_state(self) -> None:
+        self._sweep_done: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+        self._sweep_threads: Dict[str, threading.Thread] = {}
+        self._sweep_lock = threading.Lock()
 
     def _mode_for_kind(self, kind: str) -> str:
         if kind == "buy":
@@ -384,6 +398,67 @@ class LiveExecutor:
 
         return trade
 
+    def _start_sell_sweep(
+        self, kind: str, slug: str, tick: int, side: str,
+        token_id: str, px: float, want_tokens: float, account,
+    ) -> Dict[str, Any]:
+        """Spawn the sweep worker and return a "submitted" trade immediately.
+
+        Rejects with "sell_inflight" while a sweep for the same token is
+        running — the strategy re-fires exit intents every tick until the
+        position clears, and a second concurrent sweep would double-sell.
+        """
+        with self._sweep_lock:
+            th = self._sweep_threads.get(token_id)
+            if th is not None and th.is_alive():
+                return self._trade(kind, slug, tick, side, "rejected", "sell_inflight",
+                                   token_id, 0.0, 0.0, {}, {})
+            worker = threading.Thread(
+                target=self._sweep_worker,
+                args=(kind, slug, tick, side, token_id, px, want_tokens, account),
+                name=f"sell-sweep-{slug}-{tick}",
+                daemon=True,
+            )
+            self._sweep_threads[token_id] = worker
+            worker.start()
+
+        debug = {"sweep_window_sec": self.sell_sweep_window_sec,
+                 "sweep_poll_sec": self.sell_sweep_poll_sec}
+        return self._trade(kind, slug, tick, side, "submitted", "sell_sweep_started",
+                           token_id, 0.0, 0.0, {}, debug)
+
+    def _sweep_worker(self, kind, slug, tick, side, token_id, px, want_tokens, account) -> None:
+        try:
+            trade = self._sell_sweep_ioc(
+                kind=kind, slug=slug, tick=tick, side=side,
+                token_id=token_id, px=px, want_tokens=want_tokens, account=account,
+            )
+        except Exception as e:
+            log.exception("sell sweep worker crashed (%s %s)", kind, slug)
+            trade = self._trade(kind, slug, tick, side, "rejected",
+                                f"sweep_worker_error:{e}", token_id, 0.0, 0.0, {}, {})
+        finally:
+            with self._sweep_lock:
+                self._sweep_threads.pop(token_id, None)
+        self._sweep_done.put(trade)
+
+    def drain_completed(self) -> List[Dict[str, Any]]:
+        """Finished sweep trades, in completion order. Non-blocking."""
+        out: List[Dict[str, Any]] = []
+        while True:
+            try:
+                out.append(self._sweep_done.get_nowait())
+            except queue.Empty:
+                return out
+
+    def shutdown(self, timeout: Optional[float] = None) -> None:
+        """Wait for in-flight sweeps so their trades can be drained before exit."""
+        deadline = time.time() + (self.sell_sweep_window_sec + 2.0 if timeout is None else timeout)
+        with self._sweep_lock:
+            threads = list(self._sweep_threads.values())
+        for th in threads:
+            th.join(max(0.0, deadline - time.time()))
+
     def fill(self, intent: Dict[str, Any], quote_ev: Dict[str, Any], account) -> Dict[str, Any]:
         kind = str(intent.get("kind", ""))
         side = str(intent.get("side", ""))
@@ -409,9 +484,9 @@ class LiveExecutor:
         if size_tokens <= 0:
             return self._trade(kind, slug, tick, side, "rejected", "bad_size_tokens", token_id, 0.0, 0.0, {}, {})
 
-        # --- SELL: IOC sweep ---
+        # --- SELL: IOC sweep on a worker thread (final trade via drain_completed) ---
         if not is_buy:
-            return self._sell_sweep_ioc(
+            return self._start_sell_sweep(
                 kind=kind,
                 slug=slug,
                 tick=tick,
