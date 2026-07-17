@@ -22,8 +22,14 @@ Run from backtest/ (after data_prep.py):
     python run_grid.py --quick           # 32-combo smoke grid, no sensitivity pass
     python run_grid.py --json out.json   # machine-readable summary (for UI jobs)
 Output: grid_results_realistic.csv + report tables.
+
+Checkpoint (2026-07-15, after losing a 56%-done 24k grid to a shutdown): every
+combo result is appended to --out as soon as it completes, and a rerun with the
+same --out skips combos already present. Interrupt any time; resume = rerun the
+same command. An --out file with different columns (old grid axes) is refused.
 """
 import argparse
+import csv
 import json
 import os
 import time
@@ -68,8 +74,12 @@ HAIRCUT_SENS = [0.0, 0.005, 0.01, 0.02, 0.03]
 TOP_N_SENS = 15
 
 PARAM_COLS = list(GRID.keys())
+INT_PARAM_COLS = ("ma_len", "tick_confirm", "cooldown_sec", "no_entry_last_sec")
 REPORT_COLS = PARAM_COLS + ["haircut", "trades", "train_pnl", "train_mdd", "train_score",
                             "mar03_pnl", "sim_pnl", "val_pnl"]
+# checkpoint-CSV column order == _eval_combo row keys
+FIELDNAMES = PARAM_COLS + ["haircut", "trades", "train_pnl", "train_mdd", "train_score",
+                           "mar03_pnl", "sim_pnl", "val_pnl", "total_pnl", "sell_fail_rate"]
 
 
 def calc_mdd(pnls):
@@ -131,11 +141,57 @@ def _params_from_row(row):
         v = row[k]
         if isinstance(v, str) and v == "none":
             out[k] = None
-        elif k in ("ma_len", "tick_confirm", "cooldown_sec", "no_entry_last_sec"):
+        elif k in INT_PARAM_COLS:
             out[k] = int(v)
         else:
             out[k] = float(v)
     return out
+
+
+# ====== incremental checkpoint (--out is both the checkpoint and the result) ======
+
+def _norm(v):
+    """Canonical string for one param/haircut value — stable across the CSV
+    round-trip (None <-> 'none', int 0 <-> '0' <-> 0.0)."""
+    if v is None or (isinstance(v, str) and v == "none"):
+        return "none"
+    f = float(v)
+    return str(int(f)) if f.is_integer() else repr(f)
+
+
+def _combo_key(params, haircut):
+    return "|".join([_norm(params[k]) for k in PARAM_COLS] + [_norm(haircut)])
+
+
+def _canon_row(raw):
+    """Normalize a checkpoint-CSV record back to _eval_combo's row shape."""
+    row = {}
+    for k in PARAM_COLS:
+        v = raw[k]
+        if isinstance(v, str) and v == "none":
+            row[k] = "none"
+        elif k in INT_PARAM_COLS:
+            row[k] = int(float(v))
+        else:
+            row[k] = float(v)
+    for k in ("haircut", "train_pnl", "train_mdd", "train_score",
+              "mar03_pnl", "sim_pnl", "val_pnl", "total_pnl", "sell_fail_rate"):
+        row[k] = float(raw[k])
+    row["trades"] = int(raw["trades"])
+    return row
+
+
+def _load_checkpoint(path):
+    """Rows a previous (interrupted) run with the same --out already computed."""
+    p = Path(path)
+    if not p.exists() or p.stat().st_size == 0:
+        return []
+    prior = pd.read_csv(p)
+    if list(prior.columns) != FIELDNAMES:
+        raise SystemExit(f"cannot resume: {path} has different columns (old grid axes?) "
+                         f"— pass a fresh --out or delete the file")
+    prior = prior.dropna()  # a torn last line from a hard kill parses as NaNs
+    return [_canon_row(r) for r in prior.to_dict("records")]
 
 
 def run(args):
@@ -143,33 +199,46 @@ def run(args):
     combos = [dict(zip(grid.keys(), vals)) for vals in product(*grid.values())]
     if OLD_OPTIMUM not in combos:
         combos.append(OLD_OPTIMUM)
-    jobs = [(c, args.haircut) for c in combos]
-    total = len(jobs)
+    total = len(combos)
+
+    rows = _load_checkpoint(args.out)
+    done = {_combo_key(r, r["haircut"]) for r in rows}
+    jobs = [(c, args.haircut) for c in combos if _combo_key(c, args.haircut) not in done]
 
     from multiprocessing import Pool
     print(f"grid: {total} combos (exact replay of strategies/ma.py), "
           f"workers={args.workers}, cost model: haircut={args.haircut}, p_fail={args.pfail}", flush=True)
+    if rows:
+        print(f"checkpoint: {len(rows)}/{total} combos already in {args.out} "
+              f"-> {len(jobs)} to run", flush=True)
 
-    rows = []
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    ckpt = open(args.out, "a" if rows else "w", encoding="utf-8", newline="")
+    writer = csv.DictWriter(ckpt, fieldnames=FIELDNAMES)
+    if not rows:
+        writer.writeheader()
+        ckpt.flush()
+
     t0 = time.time()
     with Pool(args.workers, initializer=_init_worker,
               initargs=(args.data, args.pfail, args.seed, args.include_partial)) as pool:
         for k, row in enumerate(pool.imap_unordered(_eval_combo, jobs, chunksize=2), 1):
             rows.append(row)
-            if k % 25 == 0 or k == total:
+            writer.writerow(row)
+            ckpt.flush()
+            if len(rows) % 25 == 0 or len(rows) == total:
                 el = time.time() - t0
                 rate = k / el
-                eta = (total - k) / rate
+                eta = (total - len(rows)) / rate
                 best = max(rows, key=lambda r: r["train_score"])
-                print(f"[{k/total*100:5.1f}%] {k}/{total} rate={rate:.1f}/s eta={eta/60:.1f}m "
+                print(f"[{len(rows)/total*100:5.1f}%] {len(rows)}/{total} rate={rate:.1f}/s eta={eta/60:.1f}m "
                       f"| best train_score={best['train_score']:.2f} val={best['val_pnl']:+.2f} "
                       f"(cap={best['cap']} ma={best['ma_len']} tc={best['tick_confirm']} "
                       f"tp_abs={best['tp_abs']} cd={best['cooldown_sec']} ban={best['no_entry_last_sec']})",
                       flush=True)
+        ckpt.close()
 
         res = pd.DataFrame(rows)
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        res.to_csv(args.out, index=False)
         print(f"\nsaved: {args.out}", flush=True)
 
         print("\n===== TOP 20 by train_score (exact replay, realistic costs) =====")
@@ -222,7 +291,9 @@ def run(args):
 def main():
     ap = argparse.ArgumentParser(description="realistic ma grid (exact-replay fan-out)")
     ap.add_argument("--data", default=DATA_PATH)
-    ap.add_argument("--out", default=OUT_CSV, help="results CSV path")
+    ap.add_argument("--out", default=OUT_CSV,
+                    help="results CSV path — doubles as the incremental checkpoint; "
+                         "rerun with the same path to resume an interrupted grid")
     ap.add_argument("--haircut", type=float, default=0.01)
     ap.add_argument("--pfail", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=42)
