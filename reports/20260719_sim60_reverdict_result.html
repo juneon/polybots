@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>사후 보고서 — sim 60 재판정: threshold config 교체 / ma 변경 없음 (2026-07-19)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #e2e6ea;
+    --accent: #0b6bcb; --warn: #b4540a; --ok: #1a7f37; --bad: #c0392b;
+    --card: #f6f8fa; --code: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #9aa4ae; --line: #2b3238;
+      --accent: #5aa2e8; --warn: #e0a05a; --ok: #62c481; --bad: #e0705a;
+      --card: #1c2126; --code: #232930;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 920px; padding: 32px 20px 80px;
+         font: 15px/1.7 "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.6em; border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+  h2 { font-size: 1.25em; margin-top: 2.2em; border-left: 4px solid var(--accent); padding-left: 10px; }
+  h3 { font-size: 1.05em; margin-top: 1.6em; }
+  .meta { color: var(--muted); font-size: 0.9em; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .tldr b { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .scroll { overflow-x: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .small { font-size: 0.85em; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>사후 보고서 — sim 60 재판정: threshold config 교체 / ma 변경 없음</h1>
+<p class="meta">2026-07-19 · 집 PC · 사전 등록: WORKLOG 2026-07-18 "다음 스텝" 1~4 ·
+데이터: 완전 slug 237개 (janfeb 161 / mar03 16 / <b>sim 60</b> — 07-18 수집 목표 달성분), 비용 haircut 0.01 / p_fail 0.2 / seed 42 ·
+원 데이터: <code>backtest/results/20260719_205030_sweep_threshold.{csv,json}</code> (1,728콤보),
+<code>backtest/results/20260719_205628_grid_ma_partial60.{csv,json}</code> (576콤보)</p>
+
+<div class="tldr">
+<b>TL;DR</b> — ① <b>threshold 현 config는 sim 60에서 아웃오브샘플 음수 확정</b>
+(val <span class="bad">−6.36</span>, sim −5.41, rank 59/1728) → <b>교체 단행</b>:
+<code>enter 0.85→0.90 · stop_confirm 0→30 · enter_stable 0→60</code> (stop 0.12 / tp 0.98 / cap 0.9 / t450 유지).
+새 조합은 1,728콤보 중 <b>3소스(janfeb·mar03·sim) 동시 양수 21개(1.2%)의 score 1위</b> (val +2.65).
+② score 전체 1위였던 t180/confirm30/stable30 영역은 <b>나이프엣지로 기각</b> — 전 축 이웃 절벽 + sim 음수.
+③ <b>ma는 변경 없음 유지</b>: 후보 A·B가 sim 37→60 확대에서 생존·개선(val +7.15 / +12.58)했으나
+③(이웃 안정) 여전히 미달 + <b>후보 영역 24콤보 전부 mar03 음수</b>.
+④ 캐비앳: 새 threshold config의 표본은 46 fills(W19/L4) — 소표본. 새 config로 수집 관찰이 다음 검증.
+</div>
+
+<h2>1. threshold 재판정 (풀 스윕 1,728콤보, enter_stable_sec 축 첫 적용)</h2>
+
+<h3>1.1 현 config 성적 — 교체 사유</h3>
+<div class="scroll">
+<table>
+<tr><th>config</th><th class="num">score</th><th class="num">janfeb</th><th class="num">mar03</th><th class="num">sim</th><th class="num">val</th><th class="num">W/L</th><th class="num">fills</th><th>rank</th></tr>
+<tr><td>현행 0.85/0.12/tp0.98/cap0.9/<b>t450/c0/s0</b></td><td class="num">1.24</td><td class="num ok">+15.31</td><td class="num bad">−0.95</td><td class="num bad">−5.41</td><td class="num bad">−6.36</td><td class="num">117/72</td><td class="num">382</td><td>59 / 1728</td></tr>
+</table>
+</div>
+<ul>
+<li>07-13 교체 당시 근거였던 sim 표본(33 slugs)이 60으로 늘자 <b>sim 손익이 −5.41로 음전</b> — janfeb에서만 벌고 7월 레짐에서 잃는 구조가 확정됨.</li>
+<li>07-18 run 실측(왕복 10회 순 −$0.20, 스탑아웃이 손익 결정 요인)과 방향 일치.</li>
+</ul>
+
+<h3>1.2 score 1위 영역(t180/c30/s30) — 나이프엣지로 기각</h3>
+<p>07-14 가설 영역(t180/c20~30 + stable)이 score 상위 1~6위를 전부 차지했으나, 대표 콤보
+(0.85/0.10/tp0.99/t180/c30/s30, score 8.36)의 이웃이 전 축에서 절벽:</p>
+<div class="scroll">
+<table>
+<tr><th>축 이동</th><th class="num">score 변화</th><th>비고</th></tr>
+<tr><td>t_enter 180→300</td><td class="num bad">8.36 → −16.25</td><td>절벽</td></tr>
+<tr><td>stop_confirm 30→0</td><td class="num bad">8.36 → −9.59</td><td>절벽</td></tr>
+<tr><td>stable 30→15 / 30→0</td><td class="num bad">8.36 → −12.24 / −12.57</td><td>절벽</td></tr>
+<tr><td>enter 0.85→0.80 / →0.90</td><td class="num bad">8.36 → −15.51 / +0.45</td><td>절벽</td></tr>
+<tr><td>entry_cap 0.90→0.95</td><td class="num bad">8.36 → −7.44</td><td>절벽</td></tr>
+</table>
+</div>
+<ul>
+<li>게다가 <b>sim −0.60</b> — val 양수(+2.11)가 전부 mar03(16 slugs) 기여. D23 ③ 미달 + ② 실질 미달로 기각.</li>
+</ul>
+
+<h3>1.3 채택: 0.90/0.12/tp0.98/cap0.9/t450/confirm30/stable60</h3>
+<p><b>3소스 동시 양수는 1,728콤보 중 21개(1.2%)</b>뿐이고, 그 공통 시그니처는
+<code>enter_1=0.90 + stop_confirm 30 + stable&gt;0</code>. 채택 콤보는 그중 score 1위:</p>
+<div class="scroll">
+<table>
+<tr><th>콤보</th><th class="num">score</th><th class="num">janfeb</th><th class="num">mar03</th><th class="num">sim</th><th class="num">val</th><th class="num">W/L</th><th class="num">fills</th></tr>
+<tr><td><b>0.90/0.12/tp0.98/t450/c30/s60 (채택)</b></td><td class="num ok">6.35</td><td class="num ok">+4.50</td><td class="num ok">+1.40</td><td class="num ok">+1.25</td><td class="num ok">+2.65</td><td class="num">19/4</td><td class="num">46</td></tr>
+<tr><td>이웃: stop_drop 0.06~0.10</td><td class="num">3.45~5.55</td><td class="num ok">+2.2~3.9</td><td class="num ok">+1.40</td><td class="num ok">+0.95~1.25</td><td class="num ok">+2.35~2.65</td><td class="num">18~19/4~5</td><td class="num">46</td></tr>
+<tr><td>이웃: t_enter 300 / 180</td><td class="num">4.15 / 4.50</td><td class="num ok">+4.1</td><td class="num">+0.7 / 0.0</td><td class="num ok">+0.05 / +0.75</td><td class="num ok">+0.75</td><td class="num">13/3 · 9/1</td><td class="num">32 · 20</td></tr>
+<tr><td>이웃: stop_confirm 0</td><td class="num">2.35</td><td class="num ok">+2.9</td><td class="num ok">+1.4</td><td class="num bad">−0.35</td><td class="num ok">+1.05</td><td class="num">18/5</td><td class="num">46</td></tr>
+<tr><td>이웃: stable 30 / 15 / 0</td><td class="num bad">−2.20 / −4.80 / −22.18</td><td class="num bad">−3.2 / −0.3 / −10.1</td><td class="num ok">+3.3 / +3.3 / +0.8</td><td class="num">+0.05 / −3.35 / −3.60</td><td class="num">+3.35 / −0.05 / −2.79</td><td class="num"></td><td class="num">84~320</td></tr>
+<tr><td>이웃: tp 0.99</td><td class="num">3.43</td><td class="num ok">+5.0</td><td class="num ok">+1.6</td><td class="num bad">−1.17</td><td class="num ok">+0.43</td><td class="num">18/5</td><td class="num">46</td></tr>
+</table>
+</div>
+<ul>
+<li><b>견고한 축</b>: stop_drop 전 구간(0.06~0.12) 3소스 양수 유지, t_enter 전 구간(180~450) val 양수 — 부호 반전 없음.</li>
+<li><b>절벽인 축</b>: stable·confirm은 기능 on/off 절벽 (끄면 현행과 같은 whipsaw churn으로 회귀 — 07-14 캘리브레이션 스터디의 "스파이크 직후 진입 78% 무엣지" 발견과 정합. 파라미터 미세조정 절벽이 아니라 <b>필터 기능 자체의 효과</b>로 해석).</li>
+<li>tp 0.99에서 sim 반전(−1.17) → tp 0.98 유지.</li>
+<li><b>캐비앳 (정직하게)</b>: 46 fills(sim 기여는 60 slugs에 +1.25)의 소표본. stop_drop plateau는 이 영역에서 스탑이 거의 안 걸려서(불감) 생긴 평탄일 수 있음. effect size가 작아 "덜 잃고 가끔 먹는" 보수 전환이지 엣지 입증이 아님 — <b>새 config 수집 관찰이 본 검증</b>.</li>
+</ul>
+
+<div class="card">
+<b>config diff (configs/threshold.json)</b> — 적용 완료, 테스트 93개 통과<br>
+<code>enter_price_1/re: 0.85 → 0.90</code> · <code>stop_confirm_sec: 0 → 30</code> · <code>enter_stable_sec: 0 → 60</code><br>
+유지: <code>stop_drop 0.12 · take_profit 0.98 · entry_cap 0.9 · enter_time_left_sec 450</code><br>
+<span class="small">예상 체결 빈도: 382 → 46 fills/237 slugs 수준 (약 1/8) — 진입이 크게 줄어드는 것이 정상 동작.</span>
+</div>
+
+<h2>2. ma 재판정 (후보 영역 부분 그리드 576콤보 + 감도)</h2>
+
+<h3>2.1 등록 후보 A·B — sim 37→60에서 생존·개선 (①② 강화)</h3>
+<div class="scroll">
+<table>
+<tr><th>후보</th><th class="num">train_score</th><th class="num">mar03</th><th class="num">sim 37 val</th><th class="num">sim 60 val</th></tr>
+<tr><td>A: cap0.5/ma300/tc0/tp없음/cd0/slope−0.005</td><td class="num">44.71 (영역 4위)</td><td class="num bad">−9.88</td><td class="num">+5.75</td><td class="num ok">+7.15</td></tr>
+<tr><td>B: 현 config+slope−0.005 (tp0.98)</td><td class="num">37.25</td><td class="num bad">−9.27</td><td class="num">+6.48</td><td class="num ok">+12.58</td></tr>
+</table>
+</div>
+<p>등록 영역(cap0.5~0.6/ma300/tc0~2/cd0/slope−0.005~−0.01) 24콤보 중 val&gt;0이 19개 —
+07-14 후보(표본 확대로 소멸)와 달리 영역이 유지됨. slope 필터 유효성(07-18 H1)도 재확인
+(slope none → A val −19.68).</p>
+
+<h3>2.2 그러나 ③ 여전히 미달 + mar03 전패 → 변경 없음</h3>
+<ul>
+<li><b>ma_len 절벽 지속</b>: A 기준 ma240 → train −21.96/val −16.83, ma480 → train −9.24 (train 붕괴). ma300은 여전히 능선.</li>
+<li><b>cap 이웃 부호 반전</b>: B 기준 cap0.45 → val −5.47, cap0.6 → −0.11, cap0.7 → −7.81.</li>
+<li><b>slope 이웃 반전</b>: A 기준 −0.01 → val −1.15, 0 → −6.31.</li>
+<li><b>cd30 train 붕괴</b>(−14.15) — 07-18 판정과 동일.</li>
+<li><b>결정적: 후보 영역 24콤보 전부 mar03 음수</b> — val 양수가 100% sim 기여. 유일한 라이브 아웃오브샘플 전패 구조 불변.</li>
+</ul>
+<div class="card">
+<b>판정: configs/ma.json 변경 없음</b> (07-18 새벽 판정이 sim 60에서 재현).<br>
+부가 발견 — <b>cap0.6/tc2 서브영역</b>이 val +17~+22로 부분 그리드 최상위(6/6 양수, 대표: tc2/tp0.98/slope−0.005 val +21.98).
+단 train 평범(20~33)·mar03 음수 동일 → 차기 관찰 후보로만 등록.
+</div>
+
+<h2>3. 조치 및 다음 스텝</h2>
+<table>
+<tr><th>#</th><th>항목</th><th>상태</th></tr>
+<tr><td>1</td><td><code>configs/threshold.json</code> 교체 (0.90/c30/s60) + 테스트 93 통과</td><td class="ok">완료</td></tr>
+<tr><td>2</td><td><code>configs/ma.json</code> 변경 없음 — cap0.6/tc2 서브영역 차기 관찰 등록</td><td class="ok">판정 확정</td></tr>
+<tr><td>3</td><td><b>새 threshold config로 sim 수집 재개</b> — 진입 빈도 1/8 수준이 정상. 관찰 포인트: stable60/confirm30이 실시간 스트림에서 의도대로 진입을 거르는지, 스탑아웃 빈도 감소 여부</td><td class="warn">다음 세션</td></tr>
+<tr><td>4</td><td>차기 재판정 트리거: 새 config 실측 누적 (제안: 신규 완전 slug +30 시점) — 46 fills 소표본 캐비앳 해소가 목적</td><td class="warn">대기</td></tr>
+<tr><td>5</td><td>P2 잔여(라이브 실측 확인: SELL 스윕 스레드·sell_dust)·P3 recorder 분리는 별도 트랙 유지</td><td class="warn">로드맵</td></tr>
+</table>
+
+<p class="small">판정 기준 D23(① train 상위 ② val 양수 ③ 이웃 plateau) 적용 내역 —
+threshold 채택 콤보: ① 충족(score 7위/1728, 3소스 양수 중 1위) ② 충족(유일하게 3소스 동시 양수 클러스터) ③ 부분 충족(거래 파라미터 축은 plateau,
+신규 필터 2축은 on/off 절벽 — 기능 효과로 해석하고 소표본 캐비앳을 3번 항목으로 이월).
+ma: ①② 충족 ③ 미달 → 변경 없음. score 전체 1위(R1)는 ③ 전면 미달로 기각 — 기준이 실제로 과적합 후보를 걸러냄.</p>
+
+</body>
+</html>
