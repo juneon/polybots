@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>세션 정리 보고서 — 2026-07-16 (수집 재개 · ma 그리드 D23 · P2 스레드 분리)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #e2e6ea;
+    --accent: #0b6bcb; --warn: #b4540a; --ok: #1a7f37; --bad: #c0392b;
+    --card: #f6f8fa; --code: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #9aa4ae; --line: #2b3238;
+      --accent: #5aa2e8; --warn: #e0a05a; --ok: #62c481; --bad: #e0705a;
+      --card: #1c2126; --code: #232930;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 920px; padding: 32px 20px 80px;
+         font: 15px/1.7 "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.6em; border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+  h2 { font-size: 1.25em; margin-top: 2.2em; border-left: 4px solid var(--accent); padding-left: 10px; }
+  .meta { color: var(--muted); font-size: 0.9em; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .tldr b { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+  th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .scroll { overflow-x: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .small { font-size: 0.85em; color: var(--muted); }
+  .bar { background: var(--code); border-radius: 5px; height: 10px; min-width: 120px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+  .done { color: var(--ok); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>세션 정리 보고서 — 2026-07-16</h1>
+<p class="meta">2026-07-16 · 집 PC · 작성: Claude ·
+상세 짝 문서: <code>20260716_ma_grid_slope_result.html</code> (그리드 D23 판정 · 민감도 차트) ·
+<code>20260715_ma_grid_slope_plan.html</code> (사전 계획 · 가설 H1~H3)</p>
+
+<div class="tldr">
+<b>TL;DR</b> — 어제 중단분 전부 회수 + P2 1건 전진. ① git 확인(집 push 없음) 후 threshold sim <b>수집 재개</b>(완전 35/60에서 계속, 현재 진행 중).
+② <b>run_grid 증분 체크포인트</b> 추가 — 07-15의 "56%에서 중단 = 전부 유실" 재발 불가.
+③ <b>ma 풀 그리드 24,192조합 완주</b>(79.6분) → <b>D23 판정 미달, configs/ma.json 변경 없음</b>
+(slope 축 유효성은 재현, 후보 A는 스파이크·후보 B는 소표본 — 완전 sim 60 후 재판정).
+④ <b>P2 live SELL 스윕 스레드 분리 구현</b> — 메인 루프 블로킹(최대 10초) 제거, 테스트 80→<b>83 전부 통과</b>.
+변경분은 <b>커밋 대기</b> 상태.
+</div>
+
+<h2>1. 시작 상태 (세션 재개 점검)</h2>
+<table>
+<tr><th>항목</th><th>확인 결과</th></tr>
+<tr><td>git</td><td>집에서 push한 것 없음 — <code>main == origin/main</code>, working tree clean. 최신 커밋은 07-15 저녁 회사 3건(c9d0b90 등)</td></tr>
+<tr><td>어제 미완 ①</td><td>ma 풀 그리드 56.1%(13,575/24,192)에서 의도적 중단 — <b>부분 저장 없어 결과 유실</b>, 처음부터 재실행 필요 (WORKLOG에 재실행 절차 기록돼 있었음)</td></tr>
+<tr><td>어제 미완 ②</td><td>sim 수집 완전 35/60에서 정지 (07-15 17:57 그레이스풀, 이월 포지션 없음)</td></tr>
+<tr><td>어제 미완 ③</td><td>P2 잔여 — SELL 스윕 블로킹 스레드 분리(07-15 분석 완료 상태), USDC 가드, maker 검토, live 실측</td></tr>
+</table>
+
+<h2>2. 작업 내역</h2>
+<table>
+<tr><th>#</th><th>작업</th><th>상태</th><th>산출물 / 핵심 변경</th></tr>
+<tr><td>1</td><td>threshold sim 수집 재개</td><td class="done">진행 중</td>
+<td>run <code>20260716_134816_threshold_sim</code> — 세션 내내 정상 (정지 시 로그 스냅샷 커밋은 기존 패턴대로 별도)</td></tr>
+<tr><td>2</td><td>run_grid 증분 체크포인트</td><td class="done">완료</td>
+<td><code>backtest/run_grid.py</code> — 콤보 완료마다 <code>--out</code> CSV 즉시 append+flush, 같은 <code>--out</code> 재실행 시 (params, haircut) 키로 완료분 skip, 옛 포맷 파일은 에러 거부. 검증: quick 완주 → 10행 절단 → 재실행 "10 already, 22 left" → 결과 동일</td></tr>
+<tr><td>3</td><td>ma 풀 그리드 재실행 + D23 판정</td><td class="done">완료</td>
+<td>24,192조합 완주(79.6분, workers 12) → <code>backtest/results/20260716_grid_ma.{csv,json}</code> ·
+판정 리포트 <code>reports/20260716_ma_grid_slope_result.html</code> · <b>판정: 미달 → config 불변</b> (§3)</td></tr>
+<tr><td>4</td><td>P2 — live SELL 스윕 스레드 분리</td><td class="done">완료</td>
+<td><code>core/executor_live.py</code> + <code>core/runner.py</code> — §4. 테스트 3개 추가, 전체 83개 통과</td></tr>
+<tr><td>5</td><td>문서 갱신</td><td class="done">완료</td>
+<td><code>SPEC.md</code>(Executor 무상태 원칙 정정) · <code>WORKLOG.md</code>(07-16 진행 로그 + P2 체크)</td></tr>
+<tr><td>—</td><td>UI 게이지 30→60 (후보였던 작업)</td><td>불필요</td>
+<td>확인 결과 <code>ui/server.py</code>의 <code>COLLECTION_TARGET=60</code>으로 07-14에 이미 반영돼 있었음 — 수정 없음</td></tr>
+</table>
+
+<h2>3. ma 그리드 D23 판정 — 요약</h2>
+<div class="card">
+<b>판정: D23 미달 → <code>configs/ma.json</code> 변경 없음 (현행 유지).</b>
+상세·차트는 짝 문서 <code>20260716_ma_grid_slope_result.html</code>.
+</div>
+<ul>
+<li><b>H1 (slope 필터 유효) — 재현</b>: top100의 100%가 slope 필터 사용, 구 최적조합(slope 없음)은 <b>1,067위/24,192</b>로 탈락.</li>
+<li><b>후보 A</b> cap0.5/ma300/tp0.98/slope−0.005 — train 14위·val +1.08로 ①② 충족하나, 이웃 10개 중 7개 val 붕괴(<b>다차원 스파이크</b>) → ③ 미달. val 양수도 sim 편중(sim +10.35 / mar03 −9.27).</li>
+<li><b>후보 B</b> cap0.6/ma600/slope−0.01 — tp 전 구간 val 양수(+1.6~+4.4)인 plateau. 단 222건 소표본·train 중위(52~85위). <b>A·B 모두 완전 sim 60 도달 후 재판정 대상으로 등록.</b></li>
+<li>H2 기각(cap0.7×slope는 상보적 — train 1위가 그 결합) · H3 기각(07-14 후보 영역 최고 916위, val 전부 음수).</li>
+<li><b>haircut 0.02 = 공통 손익분기</b> — 매도 체결 품질 악화 시 전략 전체가 음수. P2 완료가 live 재개 전제라는 것이 수치로 재확인.</li>
+<li>mar03은 전 조합 음수 — 레짐 문제 지속 (enter_stable_sec/레짐 분기는 별도 트랙).</li>
+</ul>
+
+<h2>4. P2 — live SELL 스윕 스레드 분리</h2>
+<p>문제(07-15 분석): exit_tp no-match 시 IOC 스윕이 고정가로 창 전체(기본 10초)를 소진하며 메인 루프를 블로킹 —
+시세·heartbeat·판단이 전부 멈춤.</p>
+<table>
+<tr><th>설계 요점</th><th>내용</th></tr>
+<tr><td>즉시 반환</td><td>SELL 시 <code>fill()</code>이 스윕을 워커 스레드로 시작하고 곧바로 <code>submitted</code>(reason <code>sell_sweep_async</code>) 반환. <code>execution.sell_sweep_async</code> 기본 on (끄면 기존 동기 동작)</td></tr>
+<tr><td>재진입 방지</td><td>스윕 진행 중 새 SELL은 <code>rejected</code>(reason <code>sell_inflight</code>) — 양 전략 모두 filled 아니면 exit 래치 유지라 스윕 종료 후 자연 재시도</td></tr>
+<tr><td>SOT 단일화</td><td>워커는 account를 만지지 않음. 완료 trade는 runner의 <code>drain_async_trades</code>가 매 tick·slug 경계·종료 시 회수해 account.apply → on_trade → logger 순서로 반영. <code>sync_position</code>도 회수 시점(메인 스레드)에 수행</td></tr>
+<tr><td>종료 flush</td><td>finally에서 스윕 join(창+2초) 후 잔여 결과 반영 — 정지 중 체결 유실 방지</td></tr>
+<tr><td>불변식</td><td>SPEC "Executor 무상태" → "<b>트레이딩 상태 없음</b>(스레드 핸들·결과 큐는 운영 상태 예외)"로 정정</td></tr>
+<tr><td>검증</td><td>테스트 3개 추가(submitted→poll 전달 · inflight 거부/재시도 · drain 반영) — 전체 <b>83개 통과</b>. 라이브 실측 확인은 다른 P2 항목과 함께 잔여</td></tr>
+</table>
+
+<h2>5. 로드맵 진척 현황판</h2>
+<table>
+<tr><th>단계</th><th>진척</th><th style="width:140px"></th><th>비고</th></tr>
+<tr><td>P0 — sim 수집</td><td class="num">58%+</td><td><div class="bar"><i style="width:58%"></i></div></td>
+<td>완전 35/60 + 오늘 수집분 진행 중 (봇 가동 중)</td></tr>
+<tr><td>P1 — 백테스트 현실화</td><td class="num">100%</td><td><div class="bar"><i style="width:100%"></i></div></td><td>완료 (07-07)</td></tr>
+<tr><td>P2 — 실행 품질 (live 필수)</td><td class="num">50%</td><td><div class="bar"><i style="width:50%"></i></div></td>
+<td>3/6 — exit_tp 스윕✓ · 이월정산✓ · <b>스레드 분리✓(오늘)</b> / 잔여: sell_dust live 검증 · USDC 실잔고 가드 · maker 진입 검토</td></tr>
+<tr><td>P3 — 인프라</td><td class="num">~14%</td><td><div class="bar"><i style="width:14%"></i></div></td>
+<td>mar03 승격만 완료. recorder 분리가 MA sim 재가동의 선행 조건</td></tr>
+<tr><td>P4 — 확장</td><td class="num">0%</td><td><div class="bar"><i style="width:0%"></i></div></td><td>P2/P3 뒤</td></tr>
+<tr><td>Control UI</td><td class="num">80%</td><td><div class="bar"><i style="width:80%"></i></div></td>
+<td>Phase A~D 완료 / E(live 가드)는 live 재개 기준 충족 후</td></tr>
+</table>
+
+<h2>6. 변경 파일 (커밋 대기)</h2>
+<div class="scroll">
+<table>
+<tr><th>분류</th><th>파일</th><th>내용</th></tr>
+<tr><td rowspan="2">P2 스레드 분리</td><td><code>core/executor_live.py</code></td><td>비동기 스윕 시작/회수/flush (<code>_start_sell_sweep</code>·<code>poll_async_trades</code>·<code>wait_async_idle</code>)</td></tr>
+<tr><td><code>core/runner.py</code></td><td><code>drain_async_trades</code> — quote/slug 경계/finally 3곳 회수</td></tr>
+<tr><td>그리드 인프라</td><td><code>backtest/run_grid.py</code></td><td>증분 체크포인트 + resume</td></tr>
+<tr><td>테스트</td><td><code>tests/test_executor_live.py</code></td><td>비동기 3개 추가 (6→9, 전체 83)</td></tr>
+<tr><td rowspan="2">문서</td><td><code>SPEC.md</code></td><td>Executor 원칙 정정 + live executor 서술 갱신</td></tr>
+<tr><td><code>WORKLOG.md</code></td><td>07-16 진행 로그 + P2 체크 + D23 판정 기록</td></tr>
+<tr><td rowspan="3">신규 (그리드 산출물)</td><td><code>backtest/results/20260716_grid_ma.csv/.json</code></td><td>24,192조합 결과 + 민감도</td></tr>
+<tr><td><code>reports/20260716_ma_grid_slope_result.html</code></td><td>D23 판정 상세 리포트 (민감도 차트 3종)</td></tr>
+<tr><td><code>reports/20260716_session_wrap_result.html</code></td><td>본 문서</td></tr>
+<tr><td>런타임 로그</td><td><code>logs/*.csv</code> · <code>state/…</code></td><td>수집 진행분 — <b>봇 정지 시점의 스냅샷 커밋으로 분리 권장</b> (기존 패턴)</td></tr>
+</table>
+</div>
+<p class="small">권장 커밋 분리: ① P2 스레드 분리(core+tests+SPEC) ② 그리드(체크포인트+결과+리포트+WORKLOG) ③ 수집 로그 스냅샷(봇 정지 시).</p>
+
+<h2>7. 다음 단계</h2>
+<ol>
+<li><b>수집 계속</b> — 완전 sim 60 도달 시 D23 절차로 ma(후보 A·B 비교) + threshold 재판정. 봇 정지 시 로그 스냅샷 커밋.</li>
+<li><b>P2 잔여</b>: 주문 전 USDC 실잔고 가드(다음 코드 작업 후보) → sell_dust·스윕 스레드 live 소액 실측 → maker 진입 검토.</li>
+<li>MA sim 재가동은 보류 유지 (recorder 분리 P3 선행).</li>
+</ol>
+
+</body>
+</html>

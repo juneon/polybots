@@ -20,7 +20,7 @@ polybots/
 │   ├─ runner.py                  조립+CLI: 아래 부품을 연결해 봇 1개를 만든다 (유일한 조립 지점)
 │   ├─ adapters_polymarket.py     시세 소스 (Gamma: slug→token_id, CLOB: bid/ask)
 │   ├─ slug_loop.py               1초 tick · 15분 slug 롤링 → 이벤트 발생원
-│   ├─ executor_sim.py / _live.py 주문 집행 (모의 100% 체결 / 실주문 IOC 스윕) — 무상태
+│   ├─ executor_sim.py / _live.py 주문 집행 (모의 100% 체결 / 실주문 IOC 스윕, SELL은 워커 스레드) — 트레이딩 상태 없음
 │   ├─ account_sim.py / _live.py  포지션·현금의 단일 진실(SOT)
 │   ├─ logger.py / printer.py     CSV 기록 / 콘솔 출력 (sink) — CSV 스키마 상수의 원본
 │   ├─ control.py                 stop-file 감지 + heartbeat — UI와의 유일한 접점
@@ -99,7 +99,7 @@ core/logger.py + core/printer.py  (sink)
 
 원칙:
 - **Strategy는 체결에 관여하지 않는다.** intent 발행 시점에 내부 포지션/카운터를 미리 바꾸지 않는다(낙관적 설정 금지). 체결 피드백은 `on_trade`로만 수신.
-- **Executor는 상태를 가지지 않는다.**
+- **Executor는 트레이딩 상태를 가지지 않는다.** (예외: live의 SELL 스윕 워커 스레드 핸들·완료 큐는 운영 상태 — 포지션/잔고 등 트레이딩 진실은 여전히 Account에만 있다. 최종 trade는 runner가 `route_completed_trades`로 드레인해 메인 루프에서 apply/on_trade/log 한다)
 - **Account는 단일 진실(SOT).** 포지션 존재/side/entry의 진실은 account.position.
 - 시간 판단은 `time_left_sec`(tleft)로 통일. `ts`는 로그 전용.
 
