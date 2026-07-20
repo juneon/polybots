@@ -640,9 +640,11 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 07-16 회사 세션(미푸시)과 집 07-17~19 커밋이 같은 작업을 중복 수행한 것을 병합. 집 WORKLOG의 사전 지침("충돌은 집 버전 기준으로 정리") 그대로 적용:
 
 - **코드 — 집 버전 채택, 회사 구현 폐기**: run_grid 체크포인트(집 쪽이 torn-line 복구·타입 정규화·전용 테스트 보유), executor_live 스윕 스레드 + runner 드레인(집 쪽이 테스트 91·sim 스모크까지 검증 완료). 회사 원본은 로컬 브랜치 `office/20260716-unpushed`에 보존
-- **로그 — union 병합**: 회사 run `20260716_134816` (events +13,603 / trades +24 / snapshots +24행)을 legacy `events.csv` 등에 append. 회사(07-16 낮)와 집(07-17 저녁~) 수집은 시간대 겹침 없음 → 중복 tick 없음. 회사분 유입으로 sim 완전 slug 수가 60에서 소폭 늘 수 있음 — 다음 data_prep 재빌드 때 게이지로 확인
+- **로그 — union 병합**: 회사 run `20260716_134816` (events +13,603 / trades +24 / snapshots +24행)을 legacy `events.csv` 등에 append. **slug 겹침 실측 검증: 회사 run이 만진 slug 16개 중 집 run과 공유 0개** (시간대 분리 + data_prep dedup 이중 안전망). data_prep 재빌드 결과 **완전 slug 237 → 251 (+14, sim 60 → 74)** — 차기 threshold 재검증 트리거(+30)의 절반 선확보. (참고: 2+ run_id slug 36개는 07-12~13 봇 2개 동시 수집의 기존 흔적 — P3 recorder 항목, 이번 병합과 무관)
 - **회사 그리드 결과 보존**: `backtest/results/20260716_grid_ma.{csv,json}` + 리포트 2건 — 집 07-18 완주분과 동일 결론(H1 유효/config 변경 없음)의 독립 재현 기록으로 커밋. 정본은 집 `20260717_185646_grid_ma`
 - **state/sim_account_threshold.json — 집 버전 채택**: sim 계좌가 양쪽에서 갈라졌었음(회사 cash −19.0 / 집은 60/60 완주 후 새 config로 계속). 회사분 손익(−$4.2, 8 slugs)은 계좌 cash에 미반영이나 trades 로그에는 남아 있음 — sim cash는 게이지일 뿐이라 수용
 - **⚠️ P2 라이브 실측 시 검토 1건 (설계 차이)**: 집 구현은 스윕 워커 스레드가 `account.sync_position`을 직접 호출(동기 시절 동작 유지), 회사 구현은 워커가 account를 안 만지고 드레인 시점(메인 루프)에 sync하는 설계였음. GIL 덕에 실해 가능성은 낮지만 SOT 쓰기 단일화 관점에서 집 구현의 유일한 스레드 교차 지점 — 라이브 실측 때 같이 볼 것
 
 다음 스텝은 07-19 항목 그대로 (새 config 수집 재개부터).
+
+**부가 산출물**: 프로젝트 전체 회고 리포트 `reports/20260720_project_overview_result.html` — 03-03 라이브 세션부터 현재까지의 타임라인·데이터 자산·전략/연구 발견·P2/인프라·live 재개 현황 종합.
