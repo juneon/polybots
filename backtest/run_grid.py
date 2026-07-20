@@ -22,8 +22,14 @@ Run from backtest/ (after data_prep.py):
     python run_grid.py --quick           # 32-combo smoke grid, no sensitivity pass
     python run_grid.py --json out.json   # machine-readable summary (for UI jobs)
 Output: grid_results_realistic.csv + report tables.
+
+Checkpoint/resume: every finished combo is appended to --out immediately, and a
+re-run with the same --out skips combos already in the file. NOTE: the resume key
+is (params, haircut) only — rerunning with a different --data/--pfail/--seed into
+the same --out will silently mix cost models; use a fresh --out instead.
 """
 import argparse
+import csv
 import json
 import os
 import time
@@ -124,6 +130,18 @@ def _eval_combo(job):
     return row
 
 
+def _norm(v):
+    """Canonical string for a grid value — stable across a CSV round-trip."""
+    if v is None or (isinstance(v, str) and v == "none"):
+        return "none"
+    f = float(v)
+    return str(int(f)) if f == int(f) else repr(f)
+
+
+def _combo_key(row_or_params, haircut):
+    return tuple(_norm(row_or_params[k]) for k in PARAM_COLS) + (_norm(haircut),)
+
+
 def _params_from_row(row):
     """Inverse of the 'none' normalization in _eval_combo, for re-running a row."""
     out = {}
@@ -146,29 +164,56 @@ def run(args):
     jobs = [(c, args.haircut) for c in combos]
     total = len(jobs)
 
+    # ===== incremental checkpoint: resume from --out if it already exists =====
+    fieldnames = PARAM_COLS + ["haircut", "trades", "train_pnl", "train_mdd", "train_score",
+                               "mar03_pnl", "sim_pnl", "val_pnl", "total_pnl", "sell_fail_rate"]
+    out_path = Path(args.out)
+    rows = []
+    if out_path.exists() and out_path.stat().st_size > 0:
+        prev = pd.read_csv(out_path)
+        if list(prev.columns) != fieldnames:
+            raise SystemExit(f"resume: {args.out} has a different column set (old format?) — "
+                             f"pass a fresh --out or delete the file")
+        rows = prev.to_dict(orient="records")
+        done = {_combo_key(r, r["haircut"]) for r in rows}
+        jobs = [j for j in jobs if _combo_key(j[0], j[1]) not in done]
+        print(f"resume: {len(rows)} combos already in {args.out}, {len(jobs)} left", flush=True)
+    done_n = len(rows)
+    remaining = len(jobs)
+
     from multiprocessing import Pool
     print(f"grid: {total} combos (exact replay of strategies/ma.py), "
           f"workers={args.workers}, cost model: haircut={args.haircut}, p_fail={args.pfail}", flush=True)
 
-    rows = []
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    ckpt = open(out_path, "a", newline="", encoding="utf-8")
+    writer = csv.DictWriter(ckpt, fieldnames=fieldnames)
+    if done_n == 0:
+        writer.writeheader()
+        ckpt.flush()
+
     t0 = time.time()
     with Pool(args.workers, initializer=_init_worker,
               initargs=(args.data, args.pfail, args.seed, args.include_partial)) as pool:
-        for k, row in enumerate(pool.imap_unordered(_eval_combo, jobs, chunksize=2), 1):
-            rows.append(row)
-            if k % 25 == 0 or k == total:
-                el = time.time() - t0
-                rate = k / el
-                eta = (total - k) / rate
-                best = max(rows, key=lambda r: r["train_score"])
-                print(f"[{k/total*100:5.1f}%] {k}/{total} rate={rate:.1f}/s eta={eta/60:.1f}m "
-                      f"| best train_score={best['train_score']:.2f} val={best['val_pnl']:+.2f} "
-                      f"(cap={best['cap']} ma={best['ma_len']} tc={best['tick_confirm']} "
-                      f"tp_abs={best['tp_abs']} cd={best['cooldown_sec']} ban={best['no_entry_last_sec']})",
-                      flush=True)
+        try:
+            for k, row in enumerate(pool.imap_unordered(_eval_combo, jobs, chunksize=2), 1):
+                rows.append(row)
+                writer.writerow(row)
+                ckpt.flush()
+                if k % 25 == 0 or k == remaining:
+                    el = time.time() - t0
+                    rate = k / el
+                    eta = (remaining - k) / rate
+                    best = max(rows, key=lambda r: r["train_score"])
+                    print(f"[{(done_n + k)/total*100:5.1f}%] {done_n + k}/{total} rate={rate:.1f}/s eta={eta/60:.1f}m "
+                          f"| best train_score={best['train_score']:.2f} val={best['val_pnl']:+.2f} "
+                          f"(cap={best['cap']} ma={best['ma_len']} tc={best['tick_confirm']} "
+                          f"tp_abs={best['tp_abs']} cd={best['cooldown_sec']} ban={best['no_entry_last_sec']})",
+                          flush=True)
+        finally:
+            ckpt.close()
 
         res = pd.DataFrame(rows)
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         res.to_csv(args.out, index=False)
         print(f"\nsaved: {args.out}", flush=True)
 

@@ -111,6 +111,25 @@ def _f(x, default: float = 0.0) -> float:
         return default
 
 
+def drain_async_trades(executor, account, strategy, logger) -> bool:
+    """Apply finished async SELL sweeps (live worker thread) on the main loop.
+
+    Keeps the stream invariant: the worker only produces the trade dict; SOT
+    mutation (account.apply), strategy feedback and logging all happen here.
+    Returns True when any drained trade filled.
+    """
+    if not hasattr(executor, "poll_async_trades"):
+        return False
+    filled = False
+    for tr in executor.poll_async_trades(account):
+        account.apply(tr)
+        strategy.on_trade(tr)
+        logger.handle(tr)
+        if tr.get("status") == "filled":
+            filled = True
+    return filled
+
+
 def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
     pm = PolymarketAdapter(cfg)
     account, executor = build_account_executor(mode, cfg, pm, strategy_name)
@@ -135,6 +154,9 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
                 break
 
             if et in ("slug_init", "slug_change"):
+                # settle finished async sells before boundary logic/reconcile
+                if drain_async_trades(executor, account, strategy, logger) and last_quote is not None:
+                    logger.snapshot(account, last_quote)
                 slug = ev.get("slug")
                 if slug and slug != cur_slug:
                     if mode == "sim" and account.has_position():
@@ -166,8 +188,9 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
 
             elif et == "quote":
                 last_quote = ev
+                # apply finished async sells first so decisions see fresh SOT
+                filled = drain_async_trades(executor, account, strategy, logger)
                 intents = strategy.on_event(ev, account)
-                filled = False
 
                 for it in intents:
                     logger.handle(it)
@@ -200,6 +223,16 @@ def run(cfg: dict, mode: str, strategy_name: str, run_id: str) -> None:
         stop_reason = "keyboard_interrupt"
         log.info("interrupted by user — closing logs")
     finally:
+        # flush an in-flight async sell sweep so its fill is not lost on shutdown
+        if hasattr(executor, "wait_async_idle"):
+            try:
+                window = float(getattr(executor, "sell_sweep_window_sec", 10.0))
+                if not executor.wait_async_idle(timeout=window + 2.0):
+                    log.warning("async sell sweep still running at shutdown — result may be lost")
+                if drain_async_trades(executor, account, strategy, logger) and last_quote is not None:
+                    logger.snapshot(account, last_quote)
+            except Exception as e:
+                log.warning("async sell flush failed: %r", e)
         # run-end book close (crash without finally = next start's stale-drop path)
         if mode == "sim" and account.has_position() and last_quote is not None:
             pos_slug = (account.position or {}).get("slug") or cur_slug

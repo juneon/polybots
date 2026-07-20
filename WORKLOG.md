@@ -55,7 +55,7 @@
 - **P2 — 실행 품질** (live 손실 요인 제거, live 재개 전 필수 — core 작업):
   - [ ] `sell_dust:below_step` 대응 — 리팩토링 반영분(청산 실패 시 다음 tick 재발행) 라이브 검증
   - [x] exit_tp도 스윕 경로로 ✅ 2026-07-15 확인: 리팩토링에서 이미 **모든 SELL이 IOC 스윕 경로** (executor_live.fill → _sell_sweep_ioc). exit_tp는 트리거 시점 bid를 limit가로 IOC 스윕 + 레벨트리거 재발화라 3/3의 "FAK 한 방 no-match" 구조 해소됨. `tests/test_executor_live.py`(6개)로 라우팅·가격 규칙 고정. 라이브 실측 확인만 1번 항목과 함께 남음
-  - [ ] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리 — 최악 사례: exit_tp no-match 시 스윕이 고정가로 창 전체(10s)를 소진하며 블로킹 (2026-07-15 분석)
+  - [x] live SELL 스윕(≤10초)의 메인 루프 블로킹 → 스레드 분리 ✅ 2026-07-16 구현 — fill()은 즉시 `submitted` 반환, 스윕은 워커 스레드(`execution.sell_sweep_async` 기본 on), 스윕 중 SELL은 `sell_inflight` 거부(전략 exit 래치가 유지돼 재시도), 결과는 runner의 `drain_async_trades`가 매 tick 메인 루프에서 회수(account.apply/on_trade/log + 이때 sync_position), 종료 시 join+flush. 테스트 3개 추가(83개). 라이브 실측 확인은 다른 P2 항목과 함께 남음
   - [ ] 주문 전 USDC 실잔고 가드 (현재 cash는 명목 흐름)
   - [ ] maker 진입 검토 — `execution.buy: "limit"` 경로로 스프레드 회수 (왕복비용 ~$0.02가 유일한 확정 마이너스: 2026-07-14 캘리브레이션 스터디). adverse selection은 live 소액 실측으로
   - [x] **sim 이월 포지션 정산 처리** ✅ 2026-07-14 저녁 — 마지막 bid 강제 장부 마감(exit_expiry) + 교차 slug exit 차단 + stale write-off (SPEC §4.5). 과거 실측 3건(MA +5.3 과대 / threshold −3.5~−8.8 과소)의 장부는 소급 수정 안 함
@@ -534,3 +534,20 @@ ui/          server 142 · procman 177 · metrics 252 · configstore 160 · stat
 **P2 "exit_tp 스윕 경로" 확인 완료** (로드맵 체크 처리): 리팩토링에서 이미 전 SELL이 IOC 스윕 경로였음 — exit_tp는 트리거 시점 bid를 limit가로 스윕 + 레벨트리거 재발화라 3/3 "FAK 한 방 no-match" 구조 해소 상태. `tests/test_executor_live.py` 6개로 라우팅·가격·부분체결 합산·dust/타임아웃/allowance 규칙 고정 (CLOB 클라이언트 모킹, .env 불필요). **부산물**: no-match 시 스윕이 고정가로 창 전체(10s)를 소진하며 메인 루프 블로킹 — P2 스레드 분리 항목에 최악 사례로 메모.
 
 테스트 74 → **80**. 다음 세션(집): pull → 수집 재개. 그리드 판정은 회사 PC 결과 파일 기준(내일).
+
+### 2026-07-16 — 수집 재개 + run_grid 증분 체크포인트 + ma 그리드 재실행 + P2 스레드 분리
+
+> 세션 전체 정리: `reports/20260716_session_wrap_result.html` · 그리드 판정 상세: `reports/20260716_ma_grid_slope_result.html`
+
+- **git 확인**: 집 push 없음 (main == origin/main). 어제 회사 커밋 3개가 최신.
+- **수집 재개**: threshold sim (run 20260716_134816). 시작 시점 완전 35/60.
+- **run_grid 증분 체크포인트** (어제 재실행 절차 1번): 콤보 완료마다 `--out` CSV에 즉시 append+flush, 같은 `--out` 재실행 시 (params, haircut) 키로 완료분 skip. 옛 포맷(컬럼 상이) 파일이면 에러로 거부. 검증: quick 완주 → 10행 절단 → 재실행 "10 already, 22 left" → 최종 동일. ⚠️ 주의: resume 키에 --data/--pfail/--seed는 없음 — 코스트 모델 바꿀 땐 새 --out.
+- **ma 풀 그리드 완주 + D23 판정: 미달 → config 변경 없음** (24,192콤보, 79.6분, `backtest/results/20260716_grid_ma.csv`(+json) · 리포트 `reports/20260716_ma_grid_slope_result.html` 민감도 차트 포함):
+  - **H1 재현**: top100 전부 slope 필터 사용(none 0개), 구 최적조합 1,067위로 탈락 — slope 축 유효
+  - **후보 A** cap0.5/ma300/tc0/tp0.98/cd0/ban없음/slope−0.005: train 14위 + val +1.08로 ①② 충족하나 **이웃 10개 중 7개 val 붕괴(ma_len·cap·tc·cd 축은 train도 붕괴) = 다차원 스파이크 → ③ 미달**. val 양수 원천도 sim 편중(+10.35 / mar03 −9.27)
+  - **후보 B** cap0.6/ma600/slope−0.01: tp 전 구간 val 양수(+1.6~+4.4) plateau — 단 222건 소표본·train 중위(52~85위). A·B 모두 완전 sim 60 도달 후 재판정 대상으로 등록
+  - H2 기각(cap0.7×slope 상보적, 중복 아님) · H3 기각(cap0.45/ma200/tp0.99 최고 916위, val 전부 음수)
+  - haircut 민감도: 상위 후보 공통 **0.02 손익분기** — P2 완료가 live 재개 전제인 이유 재확인. mar03 전 조합 음수(레짐 문제 지속)
+- **P2 SELL 스윕 스레드 분리 구현** (로드맵 체크 참조): executor_live에 `_start_sell_sweep`/`poll_async_trades`/`wait_async_idle`, runner에 `drain_async_trades`(quote/slug 경계/finally 3곳). 설계 요점 — 워커는 account를 만지지 않음(SOT 쓰기는 메인 루프 단일화), sync_position은 회수 시점에 마지막 관측 잔고로 수행, 전략은 submitted/rejected SELL에 무반응(래치 유지)이라 스윕 중 재발화가 안전하게 거부됨. SPEC "Executor 무상태" 원칙을 "트레이딩 상태 없음(운영 상태 예외)"으로 정정.
+
+테스트 80 → **83**.

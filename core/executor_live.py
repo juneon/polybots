@@ -5,12 +5,21 @@
 - SELL: IOC sweep — polls CLOB balance every sell_sweep_poll_sec for up to
   sell_sweep_window_sec, selling whatever balance has settled each pass.
   This works around CLOB balance-reporting lag after a buy.
+- The sweep runs on a worker thread (execution.sell_sweep_async, default on):
+  fill() returns a "submitted" trade immediately and the finished sweep is
+  handed back to the main loop via poll_async_trades(), so a no-match sweep
+  cannot stall quotes/heartbeat for the whole window. While a sweep is in
+  flight, further SELLs are rejected with "sell_inflight" — strategies keep
+  their exit latch armed on non-filled trades, so they retry after the sweep.
+  The thread/result-queue is operational state only; trading state stays in
+  Account (SOT), and the account is only touched from the main loop.
 """
 from __future__ import annotations
 
 import logging
 import math
 import os
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -104,6 +113,13 @@ class LiveExecutor:
 
         self.sell_sweep_window_sec = float(self.ecfg.get("sell_sweep_window_sec", 10))
         self.sell_sweep_poll_sec = float(self.ecfg.get("sell_sweep_poll_sec", 0.5))
+        self.sell_sweep_async = bool(self.ecfg.get("sell_sweep_async", True))
+
+        # async-sweep operational state (not trading state — that lives in Account)
+        self._sweep_thread: Optional[threading.Thread] = None
+        self._sweep_token = ""
+        self._async_results: List[Dict[str, Any]] = []
+        self._async_lock = threading.Lock()
 
         self._client = build_clob_client(cfg)
 
@@ -271,10 +287,12 @@ class LiveExecutor:
 
         # allowance is checked once up-front (0 -> abort immediately)
         bal0, alw0 = self._get_balance_allowance(token_id)
+        last_bal = bal0
         if alw0 <= 0:
             debug = {
                 "allowance": alw0,
                 "balance_tokens": bal0,
+                "last_balance_tokens": bal0,
                 "want_tokens": want_tokens,
                 "step_tokens": step,
                 "sweep_window_sec": self.sell_sweep_window_sec,
@@ -289,6 +307,7 @@ class LiveExecutor:
                 break
 
             bal_t, _alw = self._get_balance_allowance(token_id)
+            last_bal = bal_t
 
             if hasattr(account, "sync_position"):
                 try:
@@ -360,6 +379,7 @@ class LiveExecutor:
         debug = {
             "want_tokens": want_tokens,
             "step_tokens": step,
+            "last_balance_tokens": last_bal,
             "sweep_window_sec": self.sell_sweep_window_sec,
             "sweep_poll_sec": self.sell_sweep_poll_sec,
             "attempts": attempts,
@@ -383,6 +403,65 @@ class LiveExecutor:
             trade["proceeds_usd"] = float(total_usdc)
 
         return trade
+
+    def _start_sell_sweep(
+        self, kind: str, slug: str, tick: int, side: str, token_id: str, px: float, want_tokens: float
+    ) -> Dict[str, Any]:
+        """Kick off the IOC sweep on a worker thread and return "submitted" at once.
+
+        One sweep at a time: a SELL arriving mid-sweep is rejected with
+        "sell_inflight" (the strategy's exit latch stays armed and re-fires).
+        The worker never touches the account — the final trade (plus the last
+        observed balance) is queued for poll_async_trades() on the main loop.
+        """
+        with self._async_lock:
+            if self._sweep_thread is not None and self._sweep_thread.is_alive():
+                return self._trade(kind, slug, tick, side, "rejected", "sell_inflight",
+                                   token_id, 0.0, 0.0, {}, {"inflight_token_id": self._sweep_token})
+
+            def _worker():
+                try:
+                    tr = self._sell_sweep_ioc(kind=kind, slug=slug, tick=tick, side=side,
+                                              token_id=token_id, px=px, want_tokens=want_tokens,
+                                              account=None)
+                except Exception as e:
+                    log.exception("sell sweep thread crashed")
+                    tr = self._trade(kind, slug, tick, side, "rejected",
+                                     f"sweep_thread_error:{e}", token_id, 0.0, 0.0, {}, {})
+                with self._async_lock:
+                    self._async_results.append(tr)
+
+            self._sweep_token = token_id
+            self._sweep_thread = threading.Thread(target=_worker, daemon=True,
+                                                  name=f"sell-sweep-{slug}-t{tick}")
+            self._sweep_thread.start()
+
+        return self._trade(kind, slug, tick, side, "submitted", "sell_sweep_async",
+                           token_id, 0.0, 0.0, {},
+                           {"want_tokens": want_tokens,
+                            "sweep_window_sec": self.sell_sweep_window_sec})
+
+    def poll_async_trades(self, account) -> List[Dict[str, Any]]:
+        """Drain finished sweep results (main loop only — this is where the
+        account gets synced/mutated, keeping SOT writes single-threaded)."""
+        with self._async_lock:
+            out, self._async_results = self._async_results, []
+        for tr in out:
+            last_bal = (tr.get("debug") or {}).get("last_balance_tokens")
+            if last_bal is not None and hasattr(account, "sync_position"):
+                try:
+                    account.sync_position(str(tr.get("token_id") or ""), float(last_bal))
+                except Exception as e:
+                    log.warning("poll_async_trades: sync_position failed: %r", e)
+        return out
+
+    def wait_async_idle(self, timeout: float) -> bool:
+        """Join a running sweep (shutdown flush). True when no sweep is left running."""
+        th = self._sweep_thread
+        if th is not None and th.is_alive():
+            th.join(timeout=max(0.0, float(timeout)))
+            return not th.is_alive()
+        return True
 
     def fill(self, intent: Dict[str, Any], quote_ev: Dict[str, Any], account) -> Dict[str, Any]:
         kind = str(intent.get("kind", ""))
@@ -409,8 +488,13 @@ class LiveExecutor:
         if size_tokens <= 0:
             return self._trade(kind, slug, tick, side, "rejected", "bad_size_tokens", token_id, 0.0, 0.0, {}, {})
 
-        # --- SELL: IOC sweep ---
+        # --- SELL: IOC sweep (worker thread by default; sync when configured off) ---
         if not is_buy:
+            if self.sell_sweep_async:
+                return self._start_sell_sweep(
+                    kind=kind, slug=slug, tick=tick, side=side,
+                    token_id=token_id, px=float(px), want_tokens=float(size_tokens),
+                )
             return self._sell_sweep_ioc(
                 kind=kind,
                 slug=slug,

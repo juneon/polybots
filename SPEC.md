@@ -20,7 +20,7 @@ polybots/
 │   ├─ runner.py                  조립+CLI: 아래 부품을 연결해 봇 1개를 만든다 (유일한 조립 지점)
 │   ├─ adapters_polymarket.py     시세 소스 (Gamma: slug→token_id, CLOB: bid/ask)
 │   ├─ slug_loop.py               1초 tick · 15분 slug 롤링 → 이벤트 발생원
-│   ├─ executor_sim.py / _live.py 주문 집행 (모의 100% 체결 / 실주문 IOC 스윕) — 무상태
+│   ├─ executor_sim.py / _live.py 주문 집행 (모의 100% 체결 / 실주문 IOC 스윕, SELL은 워커 스레드) — 트레이딩 상태 없음
 │   ├─ account_sim.py / _live.py  포지션·현금의 단일 진실(SOT)
 │   ├─ logger.py / printer.py     CSV 기록 / 콘솔 출력 (sink) — CSV 스키마 상수의 원본
 │   ├─ control.py                 stop-file 감지 + heartbeat — UI와의 유일한 접점
@@ -99,7 +99,7 @@ core/logger.py + core/printer.py  (sink)
 
 원칙:
 - **Strategy는 체결에 관여하지 않는다.** intent 발행 시점에 내부 포지션/카운터를 미리 바꾸지 않는다(낙관적 설정 금지). 체결 피드백은 `on_trade`로만 수신.
-- **Executor는 상태를 가지지 않는다.**
+- **Executor는 트레이딩 상태를 가지지 않는다.** (예외: live의 SELL 스윕 스레드 핸들/결과 큐는 운영 상태 — 포지션/잔고 등 트레이딩 진실은 여전히 Account에만 있다. 워커 스레드는 account를 만지지 않고, 결과 trade는 runner가 `poll_async_trades()`로 메인 루프에서 회수해 apply/on_trade/log 한다)
 - **Account는 단일 진실(SOT).** 포지션 존재/side/entry의 진실은 account.position.
 - 시간 판단은 `time_left_sec`(tleft)로 통일. `ts`는 로그 전용.
 
@@ -177,7 +177,7 @@ runner가 sim 모드에서만 처리 (live는 `reconcile_on_slug`가 담당):
 | `core/slug_loop.py` | 1초 tick으로 slug 추적, 이벤트 스트림 생성. loop_mode: one/rolling/duration | adapter, config | event(dict) 스트림 |
 | `strategies/*.py` | quote 해석 → intent 생성. account 읽기 전용 | event, account, config | intents |
 | `core/executor_sim.py` | 100% 체결 가정, intent 가격으로 fill | intent, quote_ev | trade |
-| `core/executor_live.py` | 실주문. BUY=GTC 1샷, SELL=IOC 스윕(잔고 폴링, 최대 sell_sweep_window_sec) | intent, quote_ev, account | trade |
+| `core/executor_live.py` | 실주문. BUY=GTC 1샷, SELL=IOC 스윕(잔고 폴링, 최대 sell_sweep_window_sec)을 **워커 스레드**로 실행(`execution.sell_sweep_async`, 기본 on) — fill()은 즉시 `submitted`(reason `sell_sweep_async`) 반환, 스윕 중 추가 SELL은 `rejected`(reason `sell_inflight`), 완료 결과는 runner가 `poll_async_trades()`로 회수(이때 메인 스레드에서 `sync_position`), 종료 시 `wait_async_idle()`로 flush | intent, quote_ev, account | trade |
 | `core/account_sim.py` | 모의 계좌. sim_account.json 영속화 | trade(filled) | 상태 |
 | `core/account_live.py` | 실계좌 상태. dust 임계, 래깅 가드, slug 경계 reconcile | trade(filled), CLOB 잔고 | 상태 |
 | `core/logger.py` | CSV 기록. **append 모드 + run_id** | event/intent/trade, account | logs/*.csv |

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>결과 보고서 — ma 그리드: entry_slope_max 축 D23 판정 (2026-07-16)</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1d21; --muted: #5c6570; --line: #e2e6ea;
+    --accent: #0b6bcb; --warn: #b4540a; --ok: #1a7f37; --bad: #c0392b;
+    --card: #f6f8fa; --code: #eef1f4;
+    --s1: #2a78d6; --s2: #008300; --s3: #e87ba4; --nb: #9aa4ae;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a; --fg: #e6e9ec; --muted: #9aa4ae; --line: #2b3238;
+      --accent: #5aa2e8; --warn: #e0a05a; --ok: #62c481; --bad: #e0705a;
+      --card: #1c2126; --code: #232930;
+      --s1: #3987e5; --s2: #008300; --s3: #d55181; --nb: #5c6570;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 920px; padding: 32px 20px 80px;
+         font: 15px/1.7 "Segoe UI", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { font-size: 1.6em; border-bottom: 2px solid var(--line); padding-bottom: 10px; }
+  h2 { font-size: 1.25em; margin-top: 2.2em; border-left: 4px solid var(--accent); padding-left: 10px; }
+  h3 { font-size: 1.05em; margin-top: 1.6em; }
+  .meta { color: var(--muted); font-size: 0.9em; }
+  .tldr { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; margin: 18px 0; }
+  .tldr b { color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9em; }
+  th, td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { background: var(--code); border-radius: 4px; padding: 1px 5px; font-size: 0.9em; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  .verdict { border: 2px solid var(--warn); background: var(--card); border-radius: 8px; padding: 12px 16px; margin: 14px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .scroll { overflow-x: auto; }
+  ol li, ul li { margin: 4px 0; }
+  .small { font-size: 0.85em; color: var(--muted); }
+  svg { width: 100%; height: auto; display: block; margin: 6px 0; }
+  svg .grid { stroke: var(--line); stroke-width: 1; }
+  svg .zero { stroke: var(--muted); stroke-width: 1.5; }
+  svg .mark { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 4 3; }
+  svg .ax { fill: var(--muted); font-size: 12px; }
+  svg .lbl { font-size: 11.5px; fill: var(--fg); }
+  svg .dl { font-size: 12px; }
+  svg .okt { fill: var(--ok); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  svg .badt { fill: var(--bad); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  svg path[data-tip]:hover, svg circle[data-tip]:hover { opacity: 0.8; }
+  .legend { display: flex; gap: 16px; font-size: 0.85em; color: var(--muted); margin-top: 8px; }
+  .lg { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  #tip { position: fixed; pointer-events: none; background: var(--fg); color: var(--bg);
+         padding: 4px 9px; border-radius: 6px; font-size: 12.5px; opacity: 0; z-index: 10;
+         transition: opacity .08s; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="tip"></div>
+
+<h1>결과 보고서 — ma 그리드: entry_slope_max 축 D23 판정</h1>
+<p class="meta">2026-07-16 · 집 PC · 작성: Claude · 짝 문서: <code>20260715_ma_grid_slope_plan.html</code> (가설 H1~H3 사전 등록)
+· 데이터: <code>backtest/results/20260716_grid_ma.csv</code></p>
+
+<div class="tldr">
+<b>TL;DR — D23 미달, config 변경 없음(현행 유지).</b>
+slope 축 자체는 유효(H1 재현: top100의 100%가 slope 필터 사용, 구 최적조합은 1,067위로 탈락).
+그러나 train 상위 + val≥0를 동시 충족하는 유일한 상위권 후보
+<b>A</b>(cap0.5/ma300/tp0.98/slope−0.005, train 14위/val +1.08)는 이웃 10개 중 7개에서 val 붕괴 —
+<b>다차원 스파이크로 ③ 미달</b>. mar03은 전 조합 음수(레짐 문제 지속).
+차선으로 <b>B 영역</b>(cap0.6/ma600/slope−0.01)이 tp 전 구간 val 양수 plateau를 형성하나
+거래 222건 소표본 — 후보 영역으로 등록만. 재판정은 완전 sim 60 도달 후.
+</div>
+
+<h2>1. 실행 요약</h2>
+<table>
+<tr><th>항목</th><th>내용</th></tr>
+<tr><td>규모</td><td>24,192조합 × 실엔진 리플레이 · workers 12 · 79.6분 (rate ~5.1/s)</td></tr>
+<tr><td>데이터</td><td>parquet 2026-07-16 재생성 — 완전 212 slugs (janfeb 161 / mar03 16 / sim 35), D22 complete-only</td></tr>
+<tr><td>비용 모델</td><td>haircut 0.01 / p_fail 0.2 / seed 42 (P1 보정 불변)</td></tr>
+<tr><td>인프라</td><td>이번부터 <b>증분 체크포인트</b>(콤보별 즉시 CSV append + 재실행 시 완료분 skip) — 07-15 중단 유실 재발 방지</td></tr>
+</table>
+
+<h2>2. TOP 10 + 구 최적조합</h2>
+<div class='scroll'><table><tr><th>#</th><th>cap</th><th>ma</th><th>tc</th><th>tp</th><th>cd</th><th>ban</th><th>slope</th><th class='num'>trades</th><th class='num'>train_pnl</th><th class='num'>train_score</th><th class='num'>mar03</th><th class='num'>sim</th><th class='num'>val</th></tr><tr><td class='num'>1</td><td class='num'>0.7</td><td class='num'>300</td><td class='num'>0</td><td class='num'>none</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.005</td><td class='num'>1000</td><td class='num'>59.63</td><td class='num'>49.19</td><td class='num'>-7.88</td><td class='num'>+2.13</td><td class='num bad'>-5.75</td></tr><tr><td class='num'>2</td><td class='num'>0.6</td><td class='num'>300</td><td class='num'>0</td><td class='num'>0.99</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.005</td><td class='num'>890</td><td class='num'>55.27</td><td class='num'>46.23</td><td class='num'>-17.57</td><td class='num'>+8.65</td><td class='num bad'>-8.92</td></tr><tr><td class='num'>3</td><td class='num'>0.6</td><td class='num'>300</td><td class='num'>0</td><td class='num'>0.98</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.005</td><td class='num'>894</td><td class='num'>54.88</td><td class='num'>45.74</td><td class='num'>-11.06</td><td class='num'>+0.05</td><td class='num bad'>-11.01</td></tr><tr><td class='num'>4</td><td class='num'>0.5</td><td class='num'>300</td><td class='num'>0</td><td class='num'>none</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.005</td><td class='num'>814</td><td class='num'>51.16</td><td class='num'>44.71</td><td class='num'>-9.88</td><td class='num'>+9.53</td><td class='num bad'>-0.35</td></tr><tr><td class='num'>5</td><td class='num'>0.5</td><td class='num'>300</td><td class='num'>0</td><td class='num'>0.99</td><td class='num'>0</td><td class='num'>none</td><td class='num'>0</td><td class='num'>882</td><td class='num'>48.75</td><td class='num'>42.35</td><td class='num'>-15.79</td><td class='num'>+6.70</td><td class='num bad'>-9.09</td></tr><tr><td class='num'>6</td><td class='num'>0.5</td><td class='num'>300</td><td class='num'>0</td><td class='num'>0.98</td><td class='num'>0</td><td class='num'>none</td><td class='num'>0</td><td class='num'>884</td><td class='num'>48.76</td><td class='num'>40.61</td><td class='num'>-13.75</td><td class='num'>+8.46</td><td class='num bad'>-5.29</td></tr><tr><td class='num'>7</td><td class='num'>0.6</td><td class='num'>300</td><td class='num'>0</td><td class='num'>0.98</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.01</td><td class='num'>800</td><td class='num'>47.78</td><td class='num'>39.68</td><td class='num'>-14.58</td><td class='num'>+4.65</td><td class='num bad'>-9.93</td></tr><tr><td class='num'>8</td><td class='num'>0.6</td><td class='num'>300</td><td class='num'>0</td><td class='num'>none</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.01</td><td class='num'>786</td><td class='num'>47.15</td><td class='num'>39.51</td><td class='num'>-9.17</td><td class='num'>+5.12</td><td class='num bad'>-4.05</td></tr><tr><td class='num'>9</td><td class='num'>0.7</td><td class='num'>300</td><td class='num'>0</td><td class='num'>none</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.01</td><td class='num'>880</td><td class='num'>48.06</td><td class='num'>39.37</td><td class='num'>-8.47</td><td class='num'>-2.27</td><td class='num bad'>-10.74</td></tr><tr><td class='num'>10</td><td class='num'>0.7</td><td class='num'>300</td><td class='num'>0</td><td class='num'>0.99</td><td class='num'>0</td><td class='num'>none</td><td class='num'>-0.005</td><td class='num'>992</td><td class='num'>49.56</td><td class='num'>39.12</td><td class='num'>-11.67</td><td class='num'>+1.75</td><td class='num bad'>-9.92</td></tr></table></div>
+<p>구 무비용 최적(cap0.5/ma300/slope 없음): train_score 1.89, val -17.98 →
+<b>1,067위 / 24,192</b>. top100에 slope 없음 조합은 0개 (구성: -0.005: 40 · -0.01: 38 · 0: 22).</p>
+
+<h2>3. D23 판정</h2>
+<div class="verdict">
+<b>판정: 미달 — configs/ma.json 변경 없음.</b>
+① train 상위 ✓ (후보 A 14위) · ② val ≥ 0 ✓ (+1.08, 소폭) ·
+③ 이웃 plateau <span class="bad">✗ — 10이웃 중 7개 val 음수, ma_len·cap·tc·cd 축에서 train도 붕괴</span>
+</div>
+<p>후보 A = cap0.5 / ma300 / tc0 / tp0.98 / cd0 / ban 없음 / slope−0.005.
+val 구성은 sim +10.35 / mar03 −9.27 — 양수의 원천이 최근 레짐(sim)에 치우친 점도 약점.</p>
+<h3>후보 A 이웃 민감도 (축별 ±1 step)</h3>
+<div class="scroll"><svg viewBox="0 0 720 416" role="img" aria-label="후보 A 이웃 민감도"><line x1="190.0" y1="16" x2="190.0" y2="382" class="grid"/><text x="190.0" y="398" class="ax" text-anchor="middle">-40</text><line x1="284.7" y1="16" x2="284.7" y2="382" class="grid"/><text x="284.7" y="398" class="ax" text-anchor="middle">-20</text><line x1="379.5" y1="16" x2="379.5" y2="382" class="grid"/><text x="379.5" y="398" class="ax" text-anchor="middle">0</text><line x1="474.2" y1="16" x2="474.2" y2="382" class="grid"/><text x="474.2" y="398" class="ax" text-anchor="middle">20</text><line x1="568.9" y1="16" x2="568.9" y2="382" class="grid"/><text x="568.9" y="398" class="ax" text-anchor="middle">40</text><line x1="379.5" y1="16" x2="379.5" y2="382" class="zero"/><path d="M379.5,16.0 L551.9,16.0 Q555.9,16.0 555.9,20.0 L555.9,34.0 Q555.9,38.0 551.9,38.0 L379.5,38.0 Z" fill="var(--s1)" data-tip="후보 A (중심) · train_score +37.3 · val +1.08"/><text x="4" y="31.0" class="ax lbl" font-weight="700">후보 A (중심)</text><text x="561.9" y="31.0" class="okt" text-anchor="start">+37.3 · val +1.1 ✓</text><path d="M379.5,46.0 L592.1,46.0 Q596.1,46.0 596.1,50.0 L596.1,64.0 Q596.1,68.0 592.1,68.0 L379.5,68.0 Z" fill="var(--nb)" data-tip="cap 0.5→0.6 · train_score +45.7 · val -11.01"/><text x="4" y="61.0" class="ax lbl" font-weight="400">cap 0.5→0.6</text><text x="602.1" y="61.0" class="badt" text-anchor="start">+45.7 · val -11.0 ✗</text><path d="M379.5,76.0 L412.0,76.0 Q416.0,76.0 416.0,80.0 L416.0,94.0 Q416.0,98.0 412.0,98.0 L379.5,98.0 Z" fill="var(--nb)" data-tip="cap 0.5→0.45 · train_score +7.7 · val -15.57"/><text x="4" y="91.0" class="ax lbl" font-weight="400">cap 0.5→0.45</text><text x="422.0" y="91.0" class="badt" text-anchor="start">+7.7 · val -15.6 ✗</text><path d="M379.5,106.0 L217.3,106.0 Q213.3,106.0 213.3,110.0 L213.3,124.0 Q213.3,128.0 217.3,128.0 L379.5,128.0 Z" fill="var(--nb)" data-tip="ma_len 300→240 · train_score -35.1 · val -24.55"/><text x="4" y="121.0" class="ax lbl" font-weight="400">ma_len 300→240</text><text x="207.3" y="121.0" class="badt" text-anchor="end">-35.1 · val -24.6 ✗</text><path d="M379.5,136.0 L307.8,136.0 Q303.8,136.0 303.8,140.0 L303.8,154.0 Q303.8,158.0 307.8,158.0 L379.5,158.0 Z" fill="var(--nb)" data-tip="ma_len 300→480 · train_score -16.0 · val -1.93"/><text x="4" y="151.0" class="ax lbl" font-weight="400">ma_len 300→480</text><text x="297.8" y="151.0" class="badt" text-anchor="end">-16.0 · val -1.9 ✗</text><path d="M379.5,166.0 L412.2,166.0 Q416.2,166.0 416.2,170.0 L416.2,184.0 Q416.2,188.0 412.2,188.0 L379.5,188.0 Z" fill="var(--nb)" data-tip="tick_confirm 0→2 · train_score +7.7 · val -10.31"/><text x="4" y="181.0" class="ax lbl" font-weight="400">tick_confirm 0→2</text><text x="422.2" y="181.0" class="badt" text-anchor="start">+7.7 · val -10.3 ✗</text><path d="M379.5,196.0 L525.6,196.0 Q529.6,196.0 529.6,200.0 L529.6,214.0 Q529.6,218.0 525.6,218.0 L379.5,218.0 Z" fill="var(--nb)" data-tip="tp_abs 0.98→0.95 · train_score +31.7 · val +1.29"/><text x="4" y="211.0" class="ax lbl" font-weight="400">tp_abs 0.98→0.95</text><text x="535.6" y="211.0" class="okt" text-anchor="start">+31.7 · val +1.3 ✓</text><path d="M379.5,226.0 L521.1,226.0 Q525.1,226.0 525.1,230.0 L525.1,244.0 Q525.1,248.0 521.1,248.0 L379.5,248.0 Z" fill="var(--nb)" data-tip="tp_abs 0.98→0.99 · train_score +30.7 · val -0.13"/><text x="4" y="241.0" class="ax lbl" font-weight="400">tp_abs 0.98→0.99</text><text x="531.1" y="241.0" class="badt" text-anchor="start">+30.7 · val -0.1 ✗</text><path d="M379.5,256.0 L316.7,256.0 Q312.7,256.0 312.7,260.0 L312.7,274.0 Q312.7,278.0 316.7,278.0 L379.5,278.0 Z" fill="var(--nb)" data-tip="cooldown_sec 0→30 · train_score -14.1 · val +1.10"/><text x="4" y="271.0" class="ax lbl" font-weight="400">cooldown_sec 0→30</text><text x="306.7" y="271.0" class="okt" text-anchor="end">-14.1 · val +1.1 ✓</text><path d="M379.5,286.0 L492.1,286.0 Q496.1,286.0 496.1,290.0 L496.1,304.0 Q496.1,308.0 492.1,308.0 L379.5,308.0 Z" fill="var(--nb)" data-tip="no_entry_last_sec none→80 · train_score +24.6 · val +0.37"/><text x="4" y="301.0" class="ax lbl" font-weight="400">no_entry_last_sec none→80</text><text x="502.1" y="301.0" class="okt" text-anchor="start">+24.6 · val +0.4 ✓</text><path d="M379.5,316.0 L567.8,316.0 Q571.8,316.0 571.8,320.0 L571.8,334.0 Q571.8,338.0 567.8,338.0 L379.5,338.0 Z" fill="var(--nb)" data-tip="entry_slope_max -0.005→0 · train_score +40.6 · val -5.29"/><text x="4" y="331.0" class="ax lbl" font-weight="400">entry_slope_max -0.005→0</text><text x="577.8" y="331.0" class="badt" text-anchor="start">+40.6 · val -5.3 ✗</text><path d="M379.5,346.0 L516.0,346.0 Q520.0,346.0 520.0,350.0 L520.0,364.0 Q520.0,368.0 516.0,368.0 L379.5,368.0 Z" fill="var(--nb)" data-tip="entry_slope_max -0.005→-0.01 · train_score +29.7 · val -8.82"/><text x="4" y="361.0" class="ax lbl" font-weight="400">entry_slope_max -0.005→-0.01</text><text x="526.0" y="361.0" class="badt" text-anchor="start">+29.7 · val -8.8 ✗</text></svg></div>
+<div class='scroll'><table><tr><th>이웃(축 변경)</th><th class='num'>train_score</th><th class='num'>val</th><th class='num'>train 순위</th><th>D23②</th></tr><tr><td><b>후보 A (중심)</b></td><td class='num'>37.25</td><td class='num ok'>+1.08</td><td class='num'>14</td><td class='ok'>✓</td></tr><tr><td>cap 0.5→0.6</td><td class='num'>45.74</td><td class='num bad'>-11.01</td><td class='num'>3</td><td class='bad'>✗</td></tr><tr><td>cap 0.5→0.45</td><td class='num'>7.72</td><td class='num bad'>-15.57</td><td class='num'>400</td><td class='bad'>✗</td></tr><tr><td>ma_len 300→240</td><td class='num'>-35.08</td><td class='num bad'>-24.55</td><td class='num'>19337</td><td class='bad'>✗</td></tr><tr><td>ma_len 300→480</td><td class='num'>-15.98</td><td class='num bad'>-1.93</td><td class='num'>9775</td><td class='bad'>✗</td></tr><tr><td>tick_confirm 0→2</td><td class='num'>7.74</td><td class='num bad'>-10.31</td><td class='num'>399</td><td class='bad'>✗</td></tr><tr><td>tp_abs 0.98→0.95</td><td class='num'>31.68</td><td class='num ok'>+1.29</td><td class='num'>25</td><td class='ok'>✓</td></tr><tr><td>tp_abs 0.98→0.99</td><td class='num'>30.73</td><td class='num bad'>-0.13</td><td class='num'>28</td><td class='bad'>✗</td></tr><tr><td>cooldown_sec 0→30</td><td class='num'>-14.10</td><td class='num ok'>+1.10</td><td class='num'>8285</td><td class='ok'>✓</td></tr><tr><td>no_entry_last_sec none→80</td><td class='num'>24.61</td><td class='num ok'>+0.37</td><td class='num'>44</td><td class='ok'>✓</td></tr><tr><td>entry_slope_max -0.005→0</td><td class='num'>40.61</td><td class='num bad'>-5.29</td><td class='num'>6</td><td class='bad'>✗</td></tr><tr><td>entry_slope_max -0.005→-0.01</td><td class='num'>29.67</td><td class='num bad'>-8.82</td><td class='num'>29</td><td class='bad'>✗</td></tr></table></div>
+<p class="small">tp 축(0.95/0.99)과 ban 축만 plateau — 나머지 축은 한 칸만 움직여도 val 음수 또는 train 붕괴. 07-14 threshold 재스윕의 "상위이지만 이웃 전부 음수 = 스파이크" 패턴과 동일.</p>
+
+<h2>4. 가설 검증 (사전 등록 H1~H3)</h2>
+<h3>H1 — slope 필터 유효성: <span class="ok">재현</span></h3>
+<p>ma300 기준 모든 cap에서 slope 필터가 train_score를 크게 개선 (아래, tp 없음 슬라이스).
+단 스크리닝의 "train·val 동시 개선" 중 val 쪽은 부분 재현에 그침 — mar03이 여전히 전 구간 음수.</p>
+<div class="legend"><span class="lg"><span class="sw" style="background:var(--s1)"></span>cap 0.5</span><span class="lg"><span class="sw" style="background:var(--s2)"></span>cap 0.6</span><span class="lg"><span class="sw" style="background:var(--s3)"></span>cap 0.7</span></div><div class="scroll"><svg viewBox="0 0 720 320" role="img" aria-label="slope 축별 train_score"><line x1="56" y1="268.0" x2="700" y2="268.0" class="grid"/><text x="48" y="272.0" class="ax" text-anchor="end">-20</text><line x1="56" y1="202.9" x2="700" y2="202.9" class="grid"/><text x="48" y="206.9" class="ax" text-anchor="end">0</text><line x1="56" y1="137.9" x2="700" y2="137.9" class="grid"/><text x="48" y="141.9" class="ax" text-anchor="end">20</text><line x1="56" y1="72.8" x2="700" y2="72.8" class="grid"/><text x="48" y="76.8" class="ax" text-anchor="end">40</text><line x1="56" y1="202.9" x2="700" y2="202.9" class="zero"/><path d="M74.5,202.9 L74.5,199.9 Q74.5,196.8 77.6,196.8 L111.4,196.8 Q114.5,196.8 114.5,199.9 L114.5,202.9 Z" fill="var(--s1)" data-tip="cap 0.5 · slope 없음(none) · train_score +1.9"/><path d="M116.5,202.9 L116.5,239.8 Q116.5,243.8 120.5,243.8 L152.5,243.8 Q156.5,243.8 156.5,239.8 L156.5,202.9 Z" fill="var(--s2)" data-tip="cap 0.6 · slope 없음(none) · train_score -12.6"/><path d="M158.5,202.9 L158.5,235.0 Q158.5,239.0 162.5,239.0 L194.5,239.0 Q198.5,239.0 198.5,235.0 L198.5,202.9 Z" fill="var(--s3)" data-tip="cap 0.7 · slope 없음(none) · train_score -11.1"/><text x="136.5" y="290" class="ax" text-anchor="middle">없음(none)</text><path d="M235.5,202.9 L235.5,96.8 Q235.5,92.8 239.5,92.8 L271.5,92.8 Q275.5,92.8 275.5,96.8 L275.5,202.9 Z" fill="var(--s1)" data-tip="cap 0.5 · slope 0 · train_score +33.9"/><path d="M277.5,202.9 L277.5,134.0 Q277.5,130.0 281.5,130.0 L313.5,130.0 Q317.5,130.0 317.5,134.0 L317.5,202.9 Z" fill="var(--s2)" data-tip="cap 0.6 · slope 0 · train_score +22.4"/><path d="M319.5,202.9 L319.5,113.0 Q319.5,109.0 323.5,109.0 L355.5,109.0 Q359.5,109.0 359.5,113.0 L359.5,202.9 Z" fill="var(--s3)" data-tip="cap 0.7 · slope 0 · train_score +28.9"/><text x="297.5" y="290" class="ax" text-anchor="middle">0</text><path d="M396.5,202.9 L396.5,61.5 Q396.5,57.5 400.5,57.5 L432.5,57.5 Q436.5,57.5 436.5,61.5 L436.5,202.9 Z" fill="var(--s1)" data-tip="cap 0.5 · slope −0.005 · train_score +44.7"/><path d="M438.5,202.9 L438.5,105.7 Q438.5,101.7 442.5,101.7 L474.5,101.7 Q478.5,101.7 478.5,105.7 L478.5,202.9 Z" fill="var(--s2)" data-tip="cap 0.6 · slope −0.005 · train_score +31.1"/><path d="M480.5,202.9 L480.5,46.9 Q480.5,42.9 484.5,42.9 L516.5,42.9 Q520.5,42.9 520.5,46.9 L520.5,202.9 Z" fill="var(--s3)" data-tip="cap 0.7 · slope −0.005 · train_score +49.2"/><text x="458.5" y="290" class="ax" text-anchor="middle">−0.005</text><path d="M557.5,202.9 L557.5,84.1 Q557.5,80.1 561.5,80.1 L593.5,80.1 Q597.5,80.1 597.5,84.1 L597.5,202.9 Z" fill="var(--s1)" data-tip="cap 0.5 · slope −0.01 · train_score +37.7"/><path d="M599.5,202.9 L599.5,78.4 Q599.5,74.4 603.5,74.4 L635.5,74.4 Q639.5,74.4 639.5,78.4 L639.5,202.9 Z" fill="var(--s2)" data-tip="cap 0.6 · slope −0.01 · train_score +39.5"/><path d="M641.5,202.9 L641.5,78.9 Q641.5,74.9 645.5,74.9 L677.5,74.9 Q681.5,74.9 681.5,78.9 L681.5,202.9 Z" fill="var(--s3)" data-tip="cap 0.7 · slope −0.01 · train_score +39.4"/><text x="619.5" y="290" class="ax" text-anchor="middle">−0.01</text><text x="16" y="16" class="ax">train_score</text></svg></div>
+<div class='scroll'><table><tr><th>slope</th><th class='num'>cap 0.5</th><th class='num'>cap 0.6</th><th class='num'>cap 0.7</th></tr><tr><td>none</td><td class='num'>+1.89</td><td class='num'>-12.55</td><td class='num'>-11.10</td></tr><tr><td>0</td><td class='num'>+33.86</td><td class='num'>+22.42</td><td class='num'>+28.88</td></tr><tr><td>-0.005</td><td class='num'>+44.71</td><td class='num'>+31.12</td><td class='num'>+49.19</td></tr><tr><td>-0.01</td><td class='num'>+37.75</td><td class='num'>+39.51</td><td class='num'>+39.37</td></tr></table></div>
+<h3>H2 — cap 0.6~0.7 / ma600과 slope의 중복 우려: <span class="ok">기각 (상보적)</span></h3>
+<p>결합해도 한쪽이 무의미해지지 않음 — train 1위가 cap0.7×slope−0.005 조합이고,
+ma600은 slope−0.01과 결합할 때만 val 양수 클러스터(B 영역)를 형성.</p>
+<h3>H3 — 07-14 후보(cap0.45/ma200/tp0.99) 생존: <span class="bad">기각</span></h3>
+<p>최고 916위, val 전부 음수 — slope 축 추가 후 생존 실패. 해당 영역은 후보에서 제외.</p>
+
+<h2>5. B 영역 — 차기 재판정 비교 대상</h2>
+<p>cap0.6 / ma600 / tc0 / cd0 / ban 없음 / slope−0.01 — <b>tp 전 구간에서 val 양수</b>(tp 축 plateau).
+단 거래 222~226건으로 후보 A(816건)의 ¼ 수준 소표본이고 train_score도 중위(52~85위).</p>
+<div class='scroll'><table><tr><th>tp_abs</th><th class='num'>trades</th><th class='num'>train_score</th><th class='num'>train 순위</th><th class='num'>mar03</th><th class='num'>sim</th><th class='num'>val</th></tr><tr><td>none</td><td class='num'>226</td><td class='num'>19.55</td><td class='num'>85</td><td class='num'>-3.69</td><td class='num'>+8.10</td><td class='num ok'>+4.41</td></tr><tr><td>0.95</td><td class='num'>224</td><td class='num'>20.44</td><td class='num'>77</td><td class='num'>-4.90</td><td class='num'>+6.50</td><td class='num ok'>+1.60</td></tr><tr><td>0.98</td><td class='num'>224</td><td class='num'>23.29</td><td class='num'>54</td><td class='num'>-4.50</td><td class='num'>+7.40</td><td class='num ok'>+2.90</td></tr><tr><td>0.99</td><td class='num'>222</td><td class='num'>23.39</td><td class='num'>52</td><td class='num'>-3.70</td><td class='num'>+6.70</td><td class='num ok'>+3.00</td></tr></table></div>
+
+<h2>6. 비용(haircut) 민감도</h2>
+<p>상위 후보 공통으로 <b>haircut 0.02가 손익분기점</b> — 현 보정치(0.01)에서는 여유가 있지만
+매도 체결 품질이 조금만 나빠져도(P2 미완 상태) 전략 전체가 음수로 넘어감.
+live 재개 전 P2(체결 품질) 완료가 필수인 이유.</p>
+<div class="scroll"><svg viewBox="0 0 720 320" role="img" aria-label="haircut 민감도"><line x1="56" y1="240.9" x2="570" y2="240.9" class="grid"/><text x="48" y="244.9" class="ax" text-anchor="end">-50</text><line x1="56" y1="173.1" x2="570" y2="173.1" class="grid"/><text x="48" y="177.1" class="ax" text-anchor="end">0</text><line x1="56" y1="105.3" x2="570" y2="105.3" class="grid"/><text x="48" y="109.3" class="ax" text-anchor="end">50</text><line x1="56" y1="37.6" x2="570" y2="37.6" class="grid"/><text x="48" y="41.6" class="ax" text-anchor="end">100</text><line x1="56" y1="173.1" x2="570" y2="173.1" class="zero"/><text x="56.0" y="290" class="ax" text-anchor="middle">0</text><line x1="56.0" y1="268" x2="56.0" y2="272" class="grid"/><text x="184.5" y="290" class="ax" text-anchor="middle">0.005</text><line x1="184.5" y1="268" x2="184.5" y2="272" class="grid"/><text x="313.0" y="290" class="ax" text-anchor="middle">0.01</text><line x1="313.0" y1="268" x2="313.0" y2="272" class="grid"/><text x="441.5" y="290" class="ax" text-anchor="middle">0.02</text><line x1="441.5" y1="268" x2="441.5" y2="272" class="grid"/><text x="570.0" y="290" class="ax" text-anchor="middle">0.03</text><line x1="570.0" y1="268" x2="570.0" y2="272" class="grid"/><line x1="313.0" y1="24" x2="313.0" y2="268" class="mark"/><text x="317.0" y="34" class="ax">현 보정치 0.01</text><polyline points="56.0,38.7 184.5,69.4 313.0,100.1 441.5,160.8 570.0,221.2" fill="none" stroke="var(--s1)" stroke-width="2"/><circle cx="56.0" cy="38.7" r="4" fill="var(--s1)" class="pt" data-tip="train 1위 (0.7/300/tp없음/−0.005) · haircut 0 · 전구간 pnl +99.1"/><circle cx="184.5" cy="69.4" r="4" fill="var(--s1)" class="pt" data-tip="train 1위 (0.7/300/tp없음/−0.005) · haircut 0.005 · 전구간 pnl +76.5"/><circle cx="313.0" cy="100.1" r="4" fill="var(--s1)" class="pt" data-tip="train 1위 (0.7/300/tp없음/−0.005) · haircut 0.01 · 전구간 pnl +53.9"/><circle cx="441.5" cy="160.8" r="4" fill="var(--s1)" class="pt" data-tip="train 1위 (0.7/300/tp없음/−0.005) · haircut 0.02 · 전구간 pnl +9.1"/><circle cx="570.0" cy="221.2" r="4" fill="var(--s1)" class="pt" data-tip="train 1위 (0.7/300/tp없음/−0.005) · haircut 0.03 · 전구간 pnl -35.5"/><text x="578" y="225.2" class="dl" fill="var(--s1)">train 1위 (0.7/300/tp없음/−0.005)</text><polyline points="56.0,56.8 184.5,84.1 313.0,111.4 441.5,165.3 570.0,218.9" fill="none" stroke="var(--s2)" stroke-width="2"/><circle cx="56.0" cy="56.8" r="4" fill="var(--s2)" class="pt" data-tip="후보 A (0.5/300/tp0.98/−0.005) · haircut 0 · 전구간 pnl +85.8"/><circle cx="184.5" cy="84.1" r="4" fill="var(--s2)" class="pt" data-tip="후보 A (0.5/300/tp0.98/−0.005) · haircut 0.005 · 전구간 pnl +65.7"/><circle cx="313.0" cy="111.4" r="4" fill="var(--s2)" class="pt" data-tip="후보 A (0.5/300/tp0.98/−0.005) · haircut 0.01 · 전구간 pnl +45.5"/><circle cx="441.5" cy="165.3" r="4" fill="var(--s2)" class="pt" data-tip="후보 A (0.5/300/tp0.98/−0.005) · haircut 0.02 · 전구간 pnl +5.8"/><circle cx="570.0" cy="218.9" r="4" fill="var(--s2)" class="pt" data-tip="후보 A (0.5/300/tp0.98/−0.005) · haircut 0.03 · 전구간 pnl -33.8"/><text x="578" y="222.9" class="dl" fill="var(--s2)">후보 A (0.5/300/tp0.98/−0.005)</text><polyline points="56.0,53.6 184.5,78.9 313.0,104.2 441.5,154.2 570.0,203.9" fill="none" stroke="var(--s3)" stroke-width="2"/><circle cx="56.0" cy="53.6" r="4" fill="var(--s3)" class="pt" data-tip="0.5/300/tp없음/−0.005 · haircut 0 · 전구간 pnl +88.2"/><circle cx="184.5" cy="78.9" r="4" fill="var(--s3)" class="pt" data-tip="0.5/300/tp없음/−0.005 · haircut 0.005 · 전구간 pnl +69.5"/><circle cx="313.0" cy="104.2" r="4" fill="var(--s3)" class="pt" data-tip="0.5/300/tp없음/−0.005 · haircut 0.01 · 전구간 pnl +50.8"/><circle cx="441.5" cy="154.2" r="4" fill="var(--s3)" class="pt" data-tip="0.5/300/tp없음/−0.005 · haircut 0.02 · 전구간 pnl +13.9"/><circle cx="570.0" cy="203.9" r="4" fill="var(--s3)" class="pt" data-tip="0.5/300/tp없음/−0.005 · haircut 0.03 · 전구간 pnl -22.7"/><text x="578" y="207.9" class="dl" fill="var(--s3)">0.5/300/tp없음/−0.005</text><text x="16" y="16" class="ax">전구간 pnl (train+val)</text></svg></div>
+<div class='scroll'><table><tr><th>조합</th><th class='num'>hc 0</th><th class='num'>hc 0.005</th><th class='num'>hc 0.01</th><th class='num'>hc 0.02</th><th class='num'>hc 0.03</th></tr><tr><td>train 1위 (0.7/300/tp없음/−0.005)</td><td class='num'>+99.14</td><td class='num'>+76.49</td><td class='num'>+53.88</td><td class='num'>+9.09</td><td class='num'>-35.51</td></tr><tr><td>후보 A (0.5/300/tp0.98/−0.005)</td><td class='num'>+85.80</td><td class='num'>+65.65</td><td class='num'>+45.54</td><td class='num'>+5.75</td><td class='num'>-33.75</td></tr><tr><td>0.5/300/tp없음/−0.005</td><td class='num'>+88.17</td><td class='num'>+69.47</td><td class='num'>+50.81</td><td class='num'>+13.92</td><td class='num'>-22.68</td></tr></table></div>
+
+<h2>7. 결론 · 다음 단계</h2>
+<ol>
+<li><b>configs/ma.json 변경 없음</b> (D23 ③ 미달). slope 축은 유효성이 재현되었으므로 축 자체는 유지.</li>
+<li><b>후보 등록</b>: A(cap0.5/ma300/tp0.98/slope−0.005, 스파이크 의심) · B(cap0.6/ma600/slope−0.01, plateau·소표본) — 완전 sim 60 도달 시 동일 절차로 재판정.</li>
+<li>mar03 전 구간 음수 지속 — 레짐 구분 없는 단일 config의 한계. 캘리브레이션 스터디(07-14)의 enter_stable_sec/레짐 분기 검토는 별도 트랙.</li>
+<li>MA sim 재가동은 여전히 보류 (recorder 분리 P3와 연계 — plan 문서의 기본값 유지).</li>
+</ol>
+
+<script>
+(function () {
+  var tip = document.getElementById("tip");
+  document.querySelectorAll("[data-tip]").forEach(function (el) {
+    el.addEventListener("mousemove", function (e) {
+      tip.textContent = el.getAttribute("data-tip");
+      tip.style.left = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8) + "px";
+      tip.style.top = (e.clientY + 14) + "px";
+      tip.style.opacity = 1;
+    });
+    el.addEventListener("mouseleave", function () { tip.style.opacity = 0; });
+  });
+})();
+</script>
+</body>
+</html>
